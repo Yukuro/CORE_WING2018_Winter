@@ -61,6 +61,9 @@ void setup() {
     // initialize device
     Serial.println(F("Initializing I2C devices..."));
     mpu.initialize();
+    mpu.setRate(9); //set sampling rate 100Hz
+    mpu.setFullScaleAccelRange(MPU6050_ACCEL_FS_16); //set accel range +-16g
+    mpu.setFullScaleGyroRange(MPU6050_GYRO_FS_1000); // ser gyro range 1000 deg/sec(dps)
     pinMode(INTERRUPT_PIN, INPUT);
 
     // verify connection
