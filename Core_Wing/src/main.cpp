@@ -1,5 +1,5 @@
-#include "I2Cdev.h"
-#include "MPU6050_6Axis_MotionApps20.h"
+#include <I2Cdev.h>
+#include <MPU6050_6Axis_MotionApps20.h>
 #include <Wire.h>
 #include <SPI.h>
 #include <Adafruit_BMP280.h>
@@ -10,6 +10,9 @@
 
 Adafruit_BMP280 bmp; // I2C
 MPU6050 mpu;
+TaskHandle_t th[2]; // Event Handle
+HardwareSerial COMM(1);
+HardwareSerial GPS(2);
 
 bool dmpReady = false;  // set true if DMP init was successful
 uint8_t mpuIntStatus;   // holds actual interrupt status byte from MPU
@@ -45,10 +48,18 @@ volatile bool mpuInterrupt = false;     // indicates whether MPU interrupt pin h
 void dmpDataReady();
 float checkMpu();
 
+void loop0(void* pvParameters);
+void loop1(void* pvParameters);
+
 void setup() {
     //initialize both Serial ports
     Serial.begin(115200);
-    Serial1.begin(115200);
+    COMM.begin(115200);
+    GPS.begin(115200);
+
+    // create tasks: loop0, loop1
+    xTaskCreatePinnedToCore(loop0, "Loop0", 8192, NULL, 2, &th[0], 0); // loop0 manipulate Phase dicision
+    xTaskCreatePinnedToCore(loop1, "Loop1", 8192, NULL, 2, &th[1], 1); // loop1 manipulate sensor processing
 
     //initialize MPU6050
     #if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
@@ -128,13 +139,30 @@ void setup() {
                     Adafruit_BMP280::STANDBY_MS_500); /* Standby time. */
 
 }
-void loop() {
-   float Temperature = bmp.readTemperature();
-   float Pressure = bmp.readPressure();
-   float altitude = bmp.readAltitude(1013.25);
-   float y,p,r = checkMpu();
 
+/*  loop0 manipulate Phase dicision  */
+void loop0 (void* pvParameters){
+    while(1){
+        Serial.println("loop0 is working");
+        vTaskDelay(1);
+    }
     
+}
+
+/*  loop1 manipulate sensor processing  */
+void loop1 (void* pvParameters){
+    while(1){
+        Serial.println("loop1 is working");
+        float Temperature = bmp.readTemperature();
+        float Pressure = bmp.readPressure();
+        float altitude = bmp.readAltitude(1013.25);
+        float yaw, pitch, roll = checkMpu();
+        vTaskDelay(1);
+    }
+    
+}
+
+void loop() {
 }
 
 void dmpDataReady() {
