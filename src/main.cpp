@@ -31,11 +31,16 @@ float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gra
 
 uint8_t teapotPacket[14] = { '$', 0x02, 0,0, 0,0, 0,0, 0,0, 0x00, 0x00, '\r', '\n' };
 
+float g_Temperature = 0.0;
+float g_Pressure = 0.0;
+float g_Altitude = 0.0;
+float g_yaw = 0.0, g_pitch = 0.0, g_roll = 0.0;
+
 enum system_phase{
-    PHASE_SETUP = 0x01,
+    PHASE_WAIT = 0x01,
     PHASE_CALIBRATION = 0x02,
     PHASE_TEST = 0x03,
-    PHASE_WAIT = 0x04,
+    PHASE_SETUP = 0x04,
     PHASE_LAUNCH = 0x05,
     PHASE_RISE = 0x06,
     PHASE_GLIDE = 0x07,
@@ -153,10 +158,17 @@ void loop0 (void* pvParameters){
 void loop1 (void* pvParameters){
     while(1){
         Serial.println("loop1 is working");
-        float Temperature = bmp.readTemperature();
-        float Pressure = bmp.readPressure();
-        float altitude = bmp.readAltitude(1013.25);
-        float yaw, pitch, roll = checkMpu();
+
+        // get sensor value
+        // from BMP280
+        g_Temperature = bmp.readTemperature();
+        g_Pressure = bmp.readPressure();
+        g_Altitude = bmp.readAltitude(1013.25);
+        // from MPU6050
+        g_yaw, g_pitch, g_roll = checkMpu();
+
+        // check sensor value
+
         vTaskDelay(1);
     }
     
