@@ -36,7 +36,7 @@ float g_Pressure = 0.0;
 float g_Altitude = 0.0;
 float g_yaw = 0.0, g_pitch = 0.0, g_roll = 0.0;
 
-enum system_phase{
+enum systemPhase{
     PHASE_WAIT = 0x01,
     PHASE_CALIBRATION = 0x02,
     PHASE_TEST = 0x03,
@@ -46,12 +46,14 @@ enum system_phase{
     PHASE_GLIDE = 0x07,
     PHASE_LAND = 0x08,
     PHASE_EMERGENCY = 0x09
-};
+} Phase;
 
 volatile bool mpuInterrupt = false;     // indicates whether MPU interrupt pin has gone high
 
 void dmpDataReady();
+void sendEmergency();
 float checkMpu();
+
 
 void loop0(void* pvParameters);
 void loop1(void* pvParameters);
@@ -149,6 +151,39 @@ void setup() {
 void loop0 (void* pvParameters){
     while(1){
         Serial.println("loop0 is working");
+        switch (Phase)
+        {
+            case PHASE_WAIT:
+                break;
+            
+            case PHASE_CALIBRATION:
+                break;
+
+            case PHASE_TEST:
+                break;
+
+            case PHASE_SETUP:
+                break;
+
+            case PHASE_LAUNCH:
+                break;
+
+            case PHASE_RISE:
+                break;
+
+            case PHASE_GLIDE:
+                break;
+
+            case PHASE_LAND:
+                break;
+
+            case PHASE_EMERGENCY:
+                sendEmergency();
+                break;
+        
+            default:
+                break;
+        }
         vTaskDelay(1);
     }
     
@@ -234,4 +269,8 @@ float checkMpu(){
             return y,p,r;
         #endif
     }
+}
+
+void sendEmergency(){
+    // TODO: implement send EMG data to MKRWAN1300 
 }
