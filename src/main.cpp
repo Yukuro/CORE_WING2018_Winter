@@ -37,15 +37,16 @@ float g_Altitude = 0.0;
 float g_yaw = 0.0, g_pitch = 0.0, g_roll = 0.0;
 
 enum systemPhase{
-    PHASE_WAIT = 0x01,
-    PHASE_CALIBRATION = 0x02,
-    PHASE_TEST = 0x03,
-    PHASE_SETUP = 0x04,
-    PHASE_LAUNCH = 0x05,
-    PHASE_RISE = 0x06,
-    PHASE_GLIDE = 0x07,
-    PHASE_LAND = 0x08,
-    PHASE_EMERGENCY = 0x09
+    PHASE_SLEEP,
+    PHASE_WAIT,
+    PHASE_CALIBRATION,
+    PHASE_TEST,
+    PHASE_SETUP,
+    PHASE_LAUNCH,
+    PHASE_RISE,
+    PHASE_GLIDE,
+    PHASE_LAND,
+    PHASE_EMERGENCY
 } Phase;
 
 volatile bool mpuInterrupt = false;     // indicates whether MPU interrupt pin has gone high
@@ -153,6 +154,9 @@ void loop0 (void* pvParameters){
         Serial.println("loop0 is working");
         switch (Phase)
         {
+            case PHASE_SLEEP:
+                break;
+
             case PHASE_WAIT:
                 break;
             
