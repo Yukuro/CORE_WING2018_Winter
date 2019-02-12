@@ -52,8 +52,8 @@ enum systemPhase{
 volatile bool mpuInterrupt = false;     // indicates whether MPU interrupt pin has gone high
 
 void dmpDataReady();
-void sendEmergency();
-float checkMpu();
+//void sendEmergency();
+//float checkMpu();
 
 
 void loop0(void* pvParameters);
@@ -64,10 +64,6 @@ void setup() {
     Serial.begin(115200);
     COMM.begin(115200);
     GPS.begin(115200);
-
-    // create tasks: loop0, loop1
-    xTaskCreatePinnedToCore(loop0, "Loop0", 8192, NULL, 2, &th[0], 0); // loop0 manipulate Phase dicision
-    xTaskCreatePinnedToCore(loop1, "Loop1", 8192, NULL, 2, &th[1], 1); // loop1 manipulate sensor processing
 
     //initialize MPU6050
     #if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
@@ -146,12 +142,17 @@ void setup() {
                     Adafruit_BMP280::FILTER_X16,      /* Filtering. */
                     Adafruit_BMP280::STANDBY_MS_500); /* Standby time. */
 
+    xTaskCreatePinnedToCore(loop0, "Loop0", 8192, NULL, 2, &th[0], 0); // loop0 manipulate Phase dicision
+    delay(500);
+    xTaskCreatePinnedToCore(loop1, "Loop1", 8192, NULL, 2, &th[1], 1); // loop1 manipulate sensor processing
+    delay(500);
+
 }
 
 /*  loop0 manipulate Phase dicision  */
 void loop0 (void* pvParameters){
     while(1){
-        Serial.println("loop0 is working");
+        //Serial.println("loop0 is working");
         switch (Phase)
         {
             case PHASE_SLEEP:
@@ -182,7 +183,7 @@ void loop0 (void* pvParameters){
                 break;
 
             case PHASE_EMERGENCY:
-                sendEmergency();
+                //sendEmergency();
                 break;
         
             default:
@@ -204,9 +205,65 @@ void loop1 (void* pvParameters){
         g_Pressure = bmp.readPressure();
         g_Altitude = bmp.readAltitude(1013.25);
         // from MPU6050
-        g_yaw, g_pitch, g_roll = checkMpu();
+        //g_yaw, g_pitch, g_roll = checkMpu();
+        //Serial.println(g_roll);
+        // if programming failed, don't try to do anything
+        if (!dmpReady) Serial.print("MPU6050 is not available !!!");
 
-        // check sensor value
+        // wait for MPU interrupt or extra packet(s) available
+        while (!mpuInterrupt && fifoCount < packetSize) {
+            if (mpuInterrupt && fifoCount < packetSize) {
+            // try to get out of the infinite loop 
+            fifoCount = mpu.getFIFOCount();
+            }  
+        }
+
+        // reset interrupt flag and get INT_STATUS byte
+        mpuInterrupt = false;
+        mpuIntStatus = mpu.getIntStatus();
+
+        // get current FIFO count
+        fifoCount = mpu.getFIFOCount();
+
+        // check for overflow (this should never happen unless our code is too inefficient)
+        if ((mpuIntStatus & _BV(MPU6050_INTERRUPT_FIFO_OFLOW_BIT)) || fifoCount >= 1024) {
+            // reset so we can continue cleanly
+            mpu.resetFIFO();
+            fifoCount = mpu.getFIFOCount();
+            Serial.println(F("FIFO overflow!"));
+        } else if (mpuIntStatus & _BV(MPU6050_INTERRUPT_DMP_INT_BIT)) {
+            // wait for correct available data length, should be a VERY short wait
+            while (fifoCount < packetSize) fifoCount = mpu.getFIFOCount();
+
+            // read a packet from FIFO
+            mpu.getFIFOBytes(fifoBuffer, packetSize);
+            
+            // track FIFO count here in case there is > 1 packet available
+            // (this lets us immediately read more without waiting for an interrupt)
+            fifoCount -= packetSize;
+
+            #ifdef OUTPUT_READABLE_YAWPITCHROLL
+                // display Euler angles in degrees
+                mpu.dmpGetQuaternion(&q, fifoBuffer);
+                mpu.dmpGetGravity(&gravity, &q);
+                mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
+                Serial.print("ypr\t");
+                Serial.print(ypr[0] * 180/M_PI);
+                Serial.print("\t");
+                Serial.print(ypr[1] * 180/M_PI);
+                Serial.print("\t");
+                Serial.println(ypr[2] * 180/M_PI);
+                float y = ypr[0] * 180/M_PI;
+                float p = ypr[1] * 180/M_PI;
+                float r = ypr[2] * 180/M_PI;
+            #endif
+        }
+
+        Serial.print(g_Temperature);
+        Serial.print("\t");
+        Serial.print(g_Pressure);
+        Serial.print("\t");
+        Serial.println(g_Altitude);
 
         vTaskDelay(1);
     }
@@ -220,61 +277,8 @@ void dmpDataReady() {
     mpuInterrupt = true;
 }
 
-float checkMpu(){
-    // if programming failed, don't try to do anything
-    if (!dmpReady) exit(1);
-
-    // wait for MPU interrupt or extra packet(s) available
-    while (!mpuInterrupt && fifoCount < packetSize) {
-        if (mpuInterrupt && fifoCount < packetSize) {
-          // try to get out of the infinite loop 
-          fifoCount = mpu.getFIFOCount();
-        }  
-    }
-
-    // reset interrupt flag and get INT_STATUS byte
-    mpuInterrupt = false;
-    mpuIntStatus = mpu.getIntStatus();
-
-    // get current FIFO count
-    fifoCount = mpu.getFIFOCount();
-
-    // check for overflow (this should never happen unless our code is too inefficient)
-    if ((mpuIntStatus & _BV(MPU6050_INTERRUPT_FIFO_OFLOW_BIT)) || fifoCount >= 1024) {
-        // reset so we can continue cleanly
-        mpu.resetFIFO();
-        fifoCount = mpu.getFIFOCount();
-        Serial.println(F("FIFO overflow!"));
-    } else if (mpuIntStatus & _BV(MPU6050_INTERRUPT_DMP_INT_BIT)) {
-        // wait for correct available data length, should be a VERY short wait
-        while (fifoCount < packetSize) fifoCount = mpu.getFIFOCount();
-
-        // read a packet from FIFO
-        mpu.getFIFOBytes(fifoBuffer, packetSize);
-        
-        // track FIFO count here in case there is > 1 packet available
-        // (this lets us immediately read more without waiting for an interrupt)
-        fifoCount -= packetSize;
-
-        #ifdef OUTPUT_READABLE_YAWPITCHROLL
-            // display Euler angles in degrees
-            mpu.dmpGetQuaternion(&q, fifoBuffer);
-            mpu.dmpGetGravity(&gravity, &q);
-            mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-            Serial.print("ypr\t");
-            Serial.print(ypr[0] * 180/M_PI);
-            Serial.print("\t");
-            Serial.print(ypr[1] * 180/M_PI);
-            Serial.print("\t");
-            Serial.println(ypr[2] * 180/M_PI);
-            float y = ypr[0] * 180/M_PI;
-            float p = ypr[1] * 180/M_PI;
-            float r = ypr[2] * 180/M_PI;
-            return y,p,r;
-        #endif
-    }
-}
-
+/*
 void sendEmergency(){
     // TODO: implement send EMG data to MKRWAN1300 
 }
+*/
