@@ -19,17 +19,14 @@ uint8_t mpuIntStatus;   // holds actual interrupt status byte from MPU
 uint8_t devStatus;      // return status after each device operation (0 = success, !0 = error)
 uint16_t packetSize;    // expected DMP packet size (default is 42 bytes)
 uint16_t fifoCount;     // count of all bytes currently in FIFO
-uint8_t fifoBuffer[1024]; // FIFO storage buffer
+uint8_t fifoBuffer[64]; // FIFO storage buffer
 
 Quaternion q;           // [w, x, y, z]         quaternion container
 VectorInt16 aa;         // [x, y, z]            accel sensor measurements
 VectorInt16 aaReal;     // [x, y, z]            gravity-free accel sensor measurements
 VectorInt16 aaWorld;    // [x, y, z]            world-frame accel sensor measurements
 VectorFloat gravity;    // [x, y, z]            gravity vector
-float euler[3];         // [psi, theta, phi]    Euler angle container
 float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
-
-uint8_t teapotPacket[14] = { '$', 0x02, 0,0, 0,0, 0,0, 0,0, 0x00, 0x00, '\r', '\n' };
 
 float g_Temperature = 0.0;
 float g_Pressure = 0.0;
@@ -142,6 +139,12 @@ void setup() {
                     Adafruit_BMP280::FILTER_X16,      /* Filtering. */
                     Adafruit_BMP280::STANDBY_MS_500); /* Standby time. */
 
+    // initial setting of light sleep
+    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_AUTO);
+    gpio_pullup_en(GPIO_NUM_0);
+    gpio_pulldown_dis(GPIO_NUM_0);
+    esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, 1);
+
     xTaskCreatePinnedToCore(loop0, "Loop0", 8192, NULL, 2, &th[0], 0); // loop0 manipulate Phase dicision
     delay(500);
     xTaskCreatePinnedToCore(loop1, "Loop1", 8192, NULL, 2, &th[1], 1); // loop1 manipulate sensor processing
@@ -156,6 +159,7 @@ void loop0 (void* pvParameters){
         switch (Phase)
         {
             case PHASE_SLEEP:
+                esp_deep_sleep_start(); // start light sleep
                 break;
 
             case PHASE_WAIT:
