@@ -44,9 +44,17 @@ enum systemPhase{
     PHASE_EMERGENCY
 } Phase;
 
+enum systemTest{
+    TEST_FLIGHTMODE,
+    TEST_LAUNCH,
+    TEST_WINGALT,
+    TEST_WINGTIMER
+} Test;
+
 volatile bool mpuInterrupt = false;     // indicates whether MPU interrupt pin has gone high
 
 void dmpDataReady();
+systemPhase phaseDecide(char command);
 //void sendEmergency();
 //float checkMpu();
 
