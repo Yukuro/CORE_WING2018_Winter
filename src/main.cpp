@@ -34,15 +34,13 @@ float g_Altitude = 0.0;
 float g_yaw = 0.0, g_pitch = 0.0, g_roll = 0.0;
 
 enum systemPhase{
-    PHASE_SLEEP,
     PHASE_WAIT,
-    PHASE_CALIBRATION,
     PHASE_TEST,
-    PHASE_SETUP,
+    PHASE_CONFIG,
     PHASE_LAUNCH,
     PHASE_RISE,
     PHASE_GLIDE,
-    PHASE_LAND,
+    PHASE_SPLASHDOWN,
     PHASE_EMERGENCY
 } Phase;
 
@@ -155,23 +153,26 @@ void setup() {
 /*  loop0 manipulate Phase dicision  */
 void loop0 (void* pvParameters){
     while(1){
+        char command; // this command consists of one ascii character
+        if(COMM.available() > 0){
+            command = COMM.read();
+        }
+
+        Phase = phaseDecide(command);
+
         //Serial.println("loop0 is working");
         switch (Phase)
         {
-            case PHASE_SLEEP:
-                esp_deep_sleep_start(); // start light sleep
-                break;
-
             case PHASE_WAIT:
-                break;
-            
-            case PHASE_CALIBRATION:
+                Serial.println("After 5 seconds enter light sleep mode");
+                delay(5000);
+                esp_light_sleep_start();
                 break;
 
             case PHASE_TEST:
                 break;
 
-            case PHASE_SETUP:
+            case PHASE_CONFIG:
                 break;
 
             case PHASE_LAUNCH:
@@ -183,7 +184,7 @@ void loop0 (void* pvParameters){
             case PHASE_GLIDE:
                 break;
 
-            case PHASE_LAND:
+            case PHASE_SPLASHDOWN:
                 break;
 
             case PHASE_EMERGENCY:
@@ -279,6 +280,38 @@ void loop() {
 
 void dmpDataReady() {
     mpuInterrupt = true;
+}
+
+systemPhase phaseDecide(char command){
+    systemPhase Phase;
+    switch(command){
+        case 'w':
+            return PHASE_WAIT;
+
+        case 't':
+            return PHASE_TEST;
+
+        case 'c':
+            return PHASE_CONFIG;
+
+        case 'l':
+            return PHASE_LAUNCH;
+
+        case 'r':
+            return PHASE_RISE;
+
+        case 'g':
+            return PHASE_GLIDE;
+        
+        case 's':
+            return PHASE_SPLASHDOWN;
+
+        case 'e':
+            return PHASE_EMERGENCY;
+
+        default:
+            return PHASE_WAIT;
+    }
 }
 
 /*
