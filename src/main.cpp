@@ -41,14 +41,16 @@ enum systemPhase{
     PHASE_RISE,
     PHASE_GLIDE,
     PHASE_SPLASHDOWN,
-    PHASE_EMERGENCY
+    PHASE_EMERGENCY,
+    PHASE_STAND
 } Phase;
 
 enum systemTest{
     TEST_FLIGHTMODE,
     TEST_LAUNCH,
     TEST_WINGALT,
-    TEST_WINGTIMER
+    TEST_WINGTIMER,
+    TEST_STAND
 } Test;
 
 volatile bool mpuInterrupt = false;     // indicates whether MPU interrupt pin has gone high
@@ -161,12 +163,11 @@ void setup() {
 /*  loop0 manipulate Phase dicision  */
 void loop0 (void* pvParameters){
     while(1){
-        char command; // this command consists of one ascii character
+        char command = ''; // this command consists of one ascii character
         if(COMM.available() > 0){
             command = COMM.read();
+            Phase = phaseDecide(command);
         }
-
-        Phase = phaseDecide(command);
 
         //Serial.println("loop0 is working");
         switch (Phase)
@@ -178,6 +179,28 @@ void loop0 (void* pvParameters){
                 break;
 
             case PHASE_TEST:
+                char testcommand = ''; // this command consists of one ascii character
+                if(COMM.available() > 0){
+                    testcommand = COMM.read();
+                    Test = testDecide(testcommand);
+                }
+
+                switch(Test){
+                    case TEST_FLIGHTMODE:
+                        break;
+
+                    case TEST_LAUNCH:
+                        break;
+
+                    case TEST_WINGALT:
+                        break;
+
+                    case TEST_WINGTIMER:
+                        break;
+
+                    case TEST_STAND:
+                        break;
+                }
                 break;
 
             case PHASE_CONFIG:
@@ -197,6 +220,9 @@ void loop0 (void* pvParameters){
 
             case PHASE_EMERGENCY:
                 //sendEmergency();
+                break;
+
+            case PHASE_STAND:
                 break;
         
             default:
@@ -291,7 +317,6 @@ void dmpDataReady() {
 }
 
 systemPhase phaseDecide(char command){
-    systemPhase Phase;
     switch(command){
         case 'w':
             return PHASE_WAIT;
@@ -318,7 +343,27 @@ systemPhase phaseDecide(char command){
             return PHASE_EMERGENCY;
 
         default:
-            return PHASE_WAIT;
+            return PHASE_STAND;
+    }
+}
+
+systemTest testDecide(char testcommand){
+    systemTest Test;
+    switch(testcommand){
+        case '0':
+            return TEST_FLIGHTMODE;
+
+        case '1':
+            return TEST_LAUNCH;
+        
+        case '2':
+            return TEST_WINGALT;
+
+        case '3':
+            return TEST_WINGTIMER;
+
+        default: 
+            return TEST_STAND;
     }
 }
 
