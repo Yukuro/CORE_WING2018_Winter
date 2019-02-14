@@ -57,6 +57,7 @@ volatile bool mpuInterrupt = false;     // indicates whether MPU interrupt pin h
 
 void dmpDataReady();
 systemPhase phaseDecide(char command);
+systemTest testDecide(char testcommand);
 //void sendEmergency();
 //float checkMpu();
 
@@ -147,6 +148,9 @@ void setup() {
                     Adafruit_BMP280::FILTER_X16,      /* Filtering. */
                     Adafruit_BMP280::STANDBY_MS_500); /* Standby time. */
 
+    //initialize the phase state
+    Phase = PHASE_WAIT;
+
     // initial setting of light sleep
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_AUTO);
     gpio_pullup_en(GPIO_NUM_0);
@@ -162,12 +166,21 @@ void setup() {
 
 /*  loop0 manipulate Phase dicision  */
 void loop0 (void* pvParameters){
+    Phase = PHASE_WAIT; // 
+    Serial.println("After 5 seconds enter light sleep mode");
+    delay(5000);
+    esp_light_sleep_start();
+    Serial.println("Im woke up");
+
     while(1){
-        char command = ''; // this command consists of one ascii character
         if(COMM.available() > 0){
-            command = COMM.read();
-            Phase = phaseDecide(command);
+            while(1){
+                char command = COMM.read(); // this command consists of one ascii character
+                Phase = phaseDecide(command);
+            }
         }
+
+        
 
         //Serial.println("loop0 is working");
         switch (Phase)
@@ -179,10 +192,11 @@ void loop0 (void* pvParameters){
                 break;
 
             case PHASE_TEST:
-                char testcommand = ''; // this command consists of one ascii character
                 if(COMM.available() > 0){
-                    testcommand = COMM.read();
-                    Test = testDecide(testcommand);
+                    while(1){
+                        char testcommand = COMM.read(); // this command consists of one ascii character
+                        Test = testDecide(testcommand);
+                    }
                 }
 
                 switch(Test){
@@ -348,7 +362,6 @@ systemPhase phaseDecide(char command){
 }
 
 systemTest testDecide(char testcommand){
-    systemTest Test;
     switch(testcommand){
         case '0':
             return TEST_FLIGHTMODE;
