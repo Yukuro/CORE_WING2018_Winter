@@ -155,20 +155,14 @@ void setup() {
 
     // initial setting of light sleep
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_AUTO);
-    gpio_pullup_en(GPIO_NUM_0);
-    gpio_pulldown_dis(GPIO_NUM_0);
-    esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, 0);
+    gpio_pullup_en(GPIO_NUM_33);
+    gpio_pulldown_dis(GPIO_NUM_33);
+    esp_sleep_enable_ext0_wakeup(GPIO_NUM_33, 0);
 
     xTaskCreatePinnedToCore(loop0, "Loop0", 8192, NULL, 2, &th[0], 0); // loop0 manipulate Phase dicision
     delay(500);
     xTaskCreatePinnedToCore(loop1, "Loop1", 8192, NULL, 2, &th[1], 1); // loop1 manipulate sensor processing
     delay(500);
-    
-    Serial.println(Phase);
-    Serial.println("After 5 seconds enter light sleep mode");
-    delay(5000);
-    esp_light_sleep_start();
-    Serial.println("Im woke up");
 }
 
 /*  loop0 manipulate Phase dicision  */
@@ -186,8 +180,11 @@ void loop0 (void* pvParameters){
 
             case PHASE_TEST:
                 Serial.println("Enter TEST Sequence");
+                // wait for test command
                 if(COMM.available() > 0){
                     char testcommand = COMM.read(); // this command consists of one ascii character
+                    Serial.write(testcommand);
+                    Serial.println(" test command received.");
                     Test = testDecide(testcommand);
                 }
 
@@ -197,6 +194,7 @@ void loop0 (void* pvParameters){
                         break;
 
                     case TEST_LAUNCH:
+                        Serial.println("Start the LAUNCH test");
                         break;
 
                     case TEST_WINGALT:
