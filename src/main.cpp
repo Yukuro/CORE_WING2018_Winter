@@ -33,6 +33,9 @@ float g_Pressure = 0.0;
 float g_Altitude = 0.0;
 float g_yaw = 0.0, g_pitch = 0.0, g_roll = 0.0;
 
+int16_t g_ax, g_ay, g_az;
+int16_t g_gx, g_gy, g_gz;
+
 int counter = 0;
 
 enum systemPhase{
@@ -191,13 +194,43 @@ void loop0 (void* pvParameters){
                 switch(Test)
                 {
                     case TEST_FLIGHTMODE:
-                        break;
+                        Phase = PHASE_LAUNCH;
+                        Serial.println("[TEST] Entry LAUNCH sequence [TEST]");
+                        continue;
 
                     case TEST_LAUNCH:
-                        Serial.println("Start the LAUNCH test");
-                        break;
+                        int counter = 0;
+                        Serial.println("[TEST] Start the LAUNCH test [TEST]");
+                        for(int i = 0; i < 10; i++){
+                            double composite = sqrt(pow(g_ax,2) + pow(g_ay,2) + pow(g_az,2)); // TODO Confirm effectiveness
+                            Serial.println(composite);
+                            if(composite > 2500) counter++;
+                        }
+                        
+                        if(counter >= 5){
+                            Serial.println("[TEST] Ready for launch [TEST]");
+                            Phase = PHASE_LAUNCH;
+                        }else{
+                            Serial.println("[TEST] NOT Ready for launch [TEST]");
+                        }
+
+                        continue;
 
                     case TEST_WINGALT:
+                        int counter = 0;
+                        Serial.println("[TEST] Start Verify the wing expansion (ALT) [TEST]");
+                        float height_old = 0.0;
+                        for(int i = 0; i < 10; i++){
+                            float height = g_Altitude; // TODO Confirm effectiveness
+                            if((height - height_old) < 0) counter++;
+                            height_old = height;
+                        }
+
+                        if(counter >= 5){
+                            Serial.println("Ready for expand the wing");
+                        }else{
+                            Serial.println("NOT Ready for expand the wing");
+                        }
                         break;
 
                     case TEST_WINGTIMER:
@@ -315,9 +348,9 @@ void loop1 (void* pvParameters){
                 Serial.println(ypr[2] * 180/M_PI);
                 */
                 
-                float y = ypr[0] * 180/M_PI;
-                float p = ypr[1] * 180/M_PI;
-                float r = ypr[2] * 180/M_PI;
+                g_yaw = ypr[0] * 180/M_PI;
+                g_pitch = ypr[1] * 180/M_PI;
+                g_roll = ypr[2] * 180/M_PI;
             #endif
         }
 
