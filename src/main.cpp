@@ -6,7 +6,7 @@
 #include <Arduino.h>
 
 #define OUTPUT_READABLE_YAWPITCHROLL
-#define INTERRUPT_PIN 2  //for mpu6050
+#define INTERRUPT_PIN 4  //for mpu6050
 
 Adafruit_BMP280 bmp; // I2C
 MPU6050 mpu;
@@ -32,6 +32,8 @@ float g_Temperature = 0.0;
 float g_Pressure = 0.0;
 float g_Altitude = 0.0;
 float g_yaw = 0.0, g_pitch = 0.0, g_roll = 0.0;
+
+int counter = 0;
 
 enum systemPhase{
     PHASE_WAIT,
@@ -68,7 +70,7 @@ void loop1(void* pvParameters);
 void setup() {
     //initialize both Serial ports
     Serial.begin(115200);
-    COMM.begin(115200);
+    COMM.begin(115200, SERIAL_8N1, 18,19);
     GPS.begin(115200);
 
     //initialize MPU6050
@@ -155,33 +157,23 @@ void setup() {
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_AUTO);
     gpio_pullup_en(GPIO_NUM_0);
     gpio_pulldown_dis(GPIO_NUM_0);
-    esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, 1);
+    esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, 0);
 
     xTaskCreatePinnedToCore(loop0, "Loop0", 8192, NULL, 2, &th[0], 0); // loop0 manipulate Phase dicision
     delay(500);
     xTaskCreatePinnedToCore(loop1, "Loop1", 8192, NULL, 2, &th[1], 1); // loop1 manipulate sensor processing
     delay(500);
-
-}
-
-/*  loop0 manipulate Phase dicision  */
-void loop0 (void* pvParameters){
-    Phase = PHASE_WAIT; // 
+    
+    Serial.println(Phase);
     Serial.println("After 5 seconds enter light sleep mode");
     delay(5000);
     esp_light_sleep_start();
     Serial.println("Im woke up");
+}
 
+/*  loop0 manipulate Phase dicision  */
+void loop0 (void* pvParameters){
     while(1){
-        if(COMM.available() > 0){
-            while(1){
-                char command = COMM.read(); // this command consists of one ascii character
-                Phase = phaseDecide(command);
-            }
-        }
-
-        
-
         //Serial.println("loop0 is working");
         switch (Phase)
         {
@@ -189,17 +181,18 @@ void loop0 (void* pvParameters){
                 Serial.println("After 5 seconds enter light sleep mode");
                 delay(5000);
                 esp_light_sleep_start();
+                Serial.println("I woke up");
                 break;
 
             case PHASE_TEST:
+                Serial.println("Enter TEST Sequence");
                 if(COMM.available() > 0){
-                    while(1){
-                        char testcommand = COMM.read(); // this command consists of one ascii character
-                        Test = testDecide(testcommand);
-                    }
+                    char testcommand = COMM.read(); // this command consists of one ascii character
+                    Test = testDecide(testcommand);
                 }
 
-                switch(Test){
+                switch(Test)
+                {
                     case TEST_FLIGHTMODE:
                         break;
 
@@ -213,6 +206,9 @@ void loop0 (void* pvParameters){
                         break;
 
                     case TEST_STAND:
+                        break;
+
+                    default:
                         break;
                 }
                 break;
@@ -242,7 +238,16 @@ void loop0 (void* pvParameters){
             default:
                 break;
         }
-        vTaskDelay(1);
+
+        // wait for command
+        if(COMM.available() > 0){
+            char command = COMM.read(); // this command consists of one ascii character
+            Serial.write(command);
+            Serial.println(" received.");
+            Phase = phaseDecide(command);
+        }
+
+        vTaskDelay(1000);
     }
     
 }
@@ -250,7 +255,7 @@ void loop0 (void* pvParameters){
 /*  loop1 manipulate sensor processing  */
 void loop1 (void* pvParameters){
     while(1){
-        Serial.println("loop1 is working");
+        //Serial.println("loop1 is working");
 
         // get sensor value
         // from BMP280
@@ -258,10 +263,12 @@ void loop1 (void* pvParameters){
         g_Pressure = bmp.readPressure();
         g_Altitude = bmp.readAltitude(1013.25);
         // from MPU6050
-        //g_yaw, g_pitch, g_roll = checkMpu();
-        //Serial.println(g_roll);
+
         // if programming failed, don't try to do anything
-        if (!dmpReady) Serial.print("MPU6050 is not available !!!");
+        if (!dmpReady){
+            Serial.println("!!! Emergency situation occurred !!!");
+            Phase = PHASE_EMERGENCY;
+        }
 
         // wait for MPU interrupt or extra packet(s) available
         while (!mpuInterrupt && fifoCount < packetSize) {
@@ -300,23 +307,29 @@ void loop1 (void* pvParameters){
                 mpu.dmpGetQuaternion(&q, fifoBuffer);
                 mpu.dmpGetGravity(&gravity, &q);
                 mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
+                
+                /*
                 Serial.print("ypr\t");
                 Serial.print(ypr[0] * 180/M_PI);
                 Serial.print("\t");
                 Serial.print(ypr[1] * 180/M_PI);
                 Serial.print("\t");
                 Serial.println(ypr[2] * 180/M_PI);
+                */
+                
                 float y = ypr[0] * 180/M_PI;
                 float p = ypr[1] * 180/M_PI;
                 float r = ypr[2] * 180/M_PI;
             #endif
         }
 
+        /*
         Serial.print(g_Temperature);
         Serial.print("\t");
         Serial.print(g_Pressure);
         Serial.print("\t");
         Serial.println(g_Altitude);
+        */
 
         vTaskDelay(1);
     }
