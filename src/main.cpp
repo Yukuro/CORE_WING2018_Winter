@@ -48,7 +48,7 @@ enum systemPhase{
     PHASE_SPLASHDOWN,
     PHASE_EMERGENCY,
     PHASE_STAND
-} Phase;
+} g_Phase;
 
 enum systemTest{
     TEST_FLIGHTMODE,
@@ -56,13 +56,13 @@ enum systemTest{
     TEST_WINGALT,
     TEST_WINGTIMER,
     TEST_STAND
-} Test;
+} g_Test;
 
 volatile bool mpuInterrupt = false;     // indicates whether MPU interrupt pin has gone high
 
 void dmpDataReady();
-systemPhase phaseDecide(char command);
-systemTest testDecide(char testcommand);
+systemPhase phaseDecide(char command, systemPhase oldPhase);
+systemTest testDecide(char testcommand, systemTest oldTest);
 //void sendEmergency();
 //float checkMpu();
 
@@ -153,8 +153,8 @@ void setup() {
                     Adafruit_BMP280::FILTER_X16,      /* Filtering. */
                     Adafruit_BMP280::STANDBY_MS_500); /* Standby time. */
 
-    //initialize the phase state
-    Phase = PHASE_WAIT;
+    //initialize the g_Phase state
+    g_Phase = PHASE_WAIT;
 
     // initial setting of light sleep
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_AUTO);
@@ -162,17 +162,17 @@ void setup() {
     gpio_pulldown_dis(GPIO_NUM_33);
     esp_sleep_enable_ext0_wakeup(GPIO_NUM_33, 0);
 
-    xTaskCreatePinnedToCore(loop0, "Loop0", 8192, NULL, 2, &th[0], 0); // loop0 manipulate Phase dicision
+    xTaskCreatePinnedToCore(loop0, "Loop0", 8192, NULL, 2, &th[0], 0); // loop0 manipulate g_Phase dicision
     delay(500);
     xTaskCreatePinnedToCore(loop1, "Loop1", 8192, NULL, 2, &th[1], 1); // loop1 manipulate sensor processing
     delay(500);
 }
 
-/*  loop0 manipulate Phase dicision  */
+/*  loop0 manipulate g_Phase dicision  */
 void loop0 (void* pvParameters){
     while(1){
         //Serial.println("loop0 is working");
-        switch (Phase)
+        switch (g_Phase)
         {
             case PHASE_WAIT:
                 Serial.println("After 5 seconds enter light sleep mode");
@@ -188,16 +188,16 @@ void loop0 (void* pvParameters){
                     char testcommand = COMM.read(); // this command consists of one ascii character
                     Serial.write(testcommand);
                     Serial.println(" test command received.");
-                    Test = testDecide(testcommand);
+                    g_Test = testDecide(testcommand, g_Test);
                 }
 
-                switch(Test)
+                switch(g_Test)
                 {
                     case TEST_FLIGHTMODE:
-                    {
-                        Phase = PHASE_LAUNCH;
+                    {   
+                        g_Phase = PHASE_LAUNCH;
                         Serial.println("[TEST] Entry LAUNCH sequence [TEST]");
-                        continue;
+                        break;
                     }
 
                     case TEST_LAUNCH:
@@ -205,19 +205,23 @@ void loop0 (void* pvParameters){
                         int counter_launch = 0;
                         Serial.println("[TEST] Start the LAUNCH test [TEST]");
                         for(int i = 0; i < 10; i++){
+                            mpu.getMotion6(&g_ax, &g_ay, &g_az, &g_gx, &g_gy, &g_gz);
                             double composite = sqrt(pow(g_ax,2) + pow(g_ay,2) + pow(g_az,2)); // TODO Confirm effectiveness
                             Serial.println(composite);
                             if(composite > 2500) counter_launch++;
+                            vTaskDelay(10);
                         }
                         
                         if(counter_launch >= 5){
                             Serial.println("[TEST] Ready for launch [TEST]");
-                            Phase = PHASE_LAUNCH;
+                            g_Phase = PHASE_LAUNCH;
                         }else{
                             Serial.println("[TEST] NOT Ready for launch [TEST]");
+                            
                         }
+                        break;
 
-                        continue;
+                        
                     }
 
                     case TEST_WINGALT:
@@ -247,6 +251,7 @@ void loop0 (void* pvParameters){
 
                     case TEST_STAND:
                     {
+                        Serial.println("TEST_STAND");
                         break;
                     }
 
@@ -257,7 +262,9 @@ void loop0 (void* pvParameters){
                     }
 
                 }
+                Serial.println("00000");
                 break;
+            Serial.println("11111");
 
             case PHASE_CONFIG:
                 break;
@@ -275,10 +282,12 @@ void loop0 (void* pvParameters){
                 break;
 
             case PHASE_EMERGENCY:
+                Serial.println("EMERGENCY Phase");
                 //sendEmergency();
                 break;
 
             case PHASE_STAND:
+                Serial.println("PHASE_STAND");
                 break;
         
             default:
@@ -290,7 +299,7 @@ void loop0 (void* pvParameters){
             char command = COMM.read(); // this command consists of one ascii character
             Serial.write(command);
             Serial.println(" received.");
-            Phase = phaseDecide(command);
+            g_Phase = phaseDecide(command, g_Phase);
         }
 
         vTaskDelay(1000);
@@ -313,7 +322,7 @@ void loop1 (void* pvParameters){
         // if programming failed, don't try to do anything
         if (!dmpReady){
             Serial.println("!!! Emergency situation occurred !!!");
-            Phase = PHASE_EMERGENCY;
+            g_Phase = PHASE_EMERGENCY;
         }
 
         // wait for MPU interrupt or extra packet(s) available
@@ -362,6 +371,8 @@ void loop1 (void* pvParameters){
                 Serial.print("\t");
                 Serial.println(ypr[2] * 180/M_PI);
                 */
+
+                
                 
                 g_yaw = ypr[0] * 180/M_PI;
                 g_pitch = ypr[1] * 180/M_PI;
@@ -389,54 +400,77 @@ void dmpDataReady() {
     mpuInterrupt = true;
 }
 
-systemPhase phaseDecide(char command){
+systemPhase phaseDecide(char command, systemPhase oldPhase){
+    systemPhase newPhase = PHASE_STAND;
     switch(command){
         case 'w':
-            return PHASE_WAIT;
+            newPhase = PHASE_WAIT;
+            break;
 
         case 't':
-            return PHASE_TEST;
+            newPhase = PHASE_TEST;
+            break;
 
         case 'c':
-            return PHASE_CONFIG;
+            newPhase = PHASE_CONFIG;
+            break;
 
         case 'l':
-            return PHASE_LAUNCH;
+            newPhase = PHASE_LAUNCH;
+            break;
 
         case 'r':
-            return PHASE_RISE;
+            newPhase = PHASE_RISE;
+            break;
 
         case 'g':
-            return PHASE_GLIDE;
+            newPhase = PHASE_GLIDE;
+            break;
         
         case 's':
-            return PHASE_SPLASHDOWN;
+            newPhase = PHASE_SPLASHDOWN;
+            break;
 
         case 'e':
-            return PHASE_EMERGENCY;
+            newPhase = PHASE_EMERGENCY;
+            break;
 
         default:
-            return PHASE_STAND;
+            return oldPhase;
+            break;
     }
+    if(newPhase != PHASE_TEST && newPhase == oldPhase) newPhase = PHASE_STAND;
+    Serial.println(newPhase);
+
+    return newPhase;
 }
 
-systemTest testDecide(char testcommand){
+systemTest testDecide(char testcommand, systemTest oldTest){
+    systemTest newTest = TEST_STAND;
     switch(testcommand){
         case '0':
-            return TEST_FLIGHTMODE;
+            newTest = TEST_FLIGHTMODE;
+            break;
 
         case '1':
-            return TEST_LAUNCH;
+            newTest = TEST_LAUNCH;
+            break;
         
         case '2':
-            return TEST_WINGALT;
+            newTest = TEST_WINGALT;
+            break;
 
         case '3':
-            return TEST_WINGTIMER;
+            newTest = TEST_WINGTIMER;
+            break;
 
         default: 
-            return TEST_STAND;
+            return oldTest;
+            break;
     }
+    if(newTest == oldTest) newTest = TEST_STAND;
+
+    return newTest;
 }
 
 /*
