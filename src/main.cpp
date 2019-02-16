@@ -206,10 +206,12 @@ void loop0 (void* pvParameters){
                         Serial.println("[TEST] Start the LAUNCH test [TEST]");
                         for(int i = 0; i < 10; i++){
                             mpu.getMotion6(&g_ax, &g_ay, &g_az, &g_gx, &g_gy, &g_gz);
-                            double composite = sqrt(pow(g_ax,2) + pow(g_ay,2) + pow(g_az,2)); // TODO Confirm effectiveness
+                            vTaskDelay(1);
+                            double composite = sqrt(pow(g_ax,2) + pow(g_ay,2) + pow(g_az,2));
+                            vTaskDelay(1); // TODO Confirm effectiveness
                             Serial.println(composite);
                             if(composite > 2500) counter_launch++;
-                            vTaskDelay(10);
+                            
                         }
                         
                         if(counter_launch >= 5){
