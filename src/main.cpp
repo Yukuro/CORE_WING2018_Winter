@@ -194,20 +194,23 @@ void loop0 (void* pvParameters){
                 switch(Test)
                 {
                     case TEST_FLIGHTMODE:
+                    {
                         Phase = PHASE_LAUNCH;
                         Serial.println("[TEST] Entry LAUNCH sequence [TEST]");
                         continue;
+                    }
 
                     case TEST_LAUNCH:
-                        int counter = 0;
+                    {
+                        int counter_launch = 0;
                         Serial.println("[TEST] Start the LAUNCH test [TEST]");
                         for(int i = 0; i < 10; i++){
                             double composite = sqrt(pow(g_ax,2) + pow(g_ay,2) + pow(g_az,2)); // TODO Confirm effectiveness
                             Serial.println(composite);
-                            if(composite > 2500) counter++;
+                            if(composite > 2500) counter_launch++;
                         }
                         
-                        if(counter >= 5){
+                        if(counter_launch >= 5){
                             Serial.println("[TEST] Ready for launch [TEST]");
                             Phase = PHASE_LAUNCH;
                         }else{
@@ -215,32 +218,44 @@ void loop0 (void* pvParameters){
                         }
 
                         continue;
+                    }
 
                     case TEST_WINGALT:
-                        int counter = 0;
+                    {
+                        int counter_wingalt = 0;
                         Serial.println("[TEST] Start Verify the wing expansion (ALT) [TEST]");
                         float height_old = 0.0;
                         for(int i = 0; i < 10; i++){
                             float height = g_Altitude; // TODO Confirm effectiveness
-                            if((height - height_old) < 0) counter++;
+                            if((height - height_old) < 0) counter_wingalt++;
                             height_old = height;
                         }
 
-                        if(counter >= 5){
+                        if(counter_wingalt >= 5){
                             Serial.println("Ready for expand the wing");
                         }else{
                             Serial.println("NOT Ready for expand the wing");
                         }
                         break;
+                    }
 
                     case TEST_WINGTIMER:
+                    {
                         break;
+                    }
+
 
                     case TEST_STAND:
+                    {
                         break;
+                    }
+
 
                     default:
+                    {
                         break;
+                    }
+
                 }
                 break;
 
