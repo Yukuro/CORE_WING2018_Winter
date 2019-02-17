@@ -36,6 +36,11 @@ float g_yaw = 0.0, g_pitch = 0.0, g_roll = 0.0;
 int16_t g_ax, g_ay, g_az;
 int16_t g_gx, g_gy, g_gz;
 
+QueueHandle_t queue_ax;
+QueueHandle_t queue_ay;
+QueueHandle_t queue_az;
+QueueHandle_t queue_magnitude;
+
 int counter = 0;
 
 enum systemPhase{
@@ -156,6 +161,24 @@ void setup() {
     //initialize the g_Phase state
     g_Phase = PHASE_WAIT;
 
+    // create a queue for inter-core data sharing
+    queue_ax = xQueueCreate(10, sizeof(float));
+    if(queue_ax == NULL){
+        Serial.println("can NOT create QUEUE_AX");
+    }
+    queue_ay = xQueueCreate(10, sizeof(float));
+    if(queue_ay == NULL){
+        Serial.println("can NOT create QUEUE_AY");
+    }
+    queue_az = xQueueCreate(10, sizeof(float));
+    if(queue_az == NULL){
+        Serial.println("can NOT create QUEUE_AZ");
+    }
+    queue_magnitude = xQueueCreate(10, sizeof(float));
+    if(queue_magnitude == NULL){
+        Serial.println("can NOT create QUEUE_MAGNITUDE");
+    }
+
     // initial setting of light sleep
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_AUTO);
     gpio_pullup_en(GPIO_NUM_33);
@@ -205,13 +228,25 @@ void loop0 (void* pvParameters){
                         int counter_launch = 0;
                         Serial.println("[TEST] Start the LAUNCH test [TEST]");
                         for(int i = 0; i < 10; i++){
-                            mpu.getMotion6(&g_ax, &g_ay, &g_az, &g_gx, &g_gy, &g_gz);
-                            vTaskDelay(1);
+                            //mpu.getMotion6(&g_ax, &g_ay, &g_az, &g_gx, &g_gy, &g_gz);
+                            //vTaskDelay(1);
+                            int16_t ax,ay,az;
+                            float magnitude;
+                            xQueueReceive(queue_ax, &ax, portMAX_DELAY);
+                            xQueueReceive(queue_ay, &ay, portMAX_DELAY);
+                            xQueueReceive(queue_az, &az, portMAX_DELAY);
+                            xQueueReceive(queue_magnitude, &magnitude, portMAX_DELAY);
                             double composite = sqrt(pow(g_ax,2) + pow(g_ay,2) + pow(g_az,2));
                             vTaskDelay(1); // TODO Confirm effectiveness
-                            Serial.println(composite);
+                            Serial.print("ax: ");
+                            Serial.print(ax);
+                            Serial.print(",ay: ");
+                            Serial.print(ay);
+                            Serial.print(",az: ");
+                            Serial.print(az);
+                            Serial.print(",magnitude: ");
+                            Serial.println(magnitude);
                             if(composite > 2500) counter_launch++;
-                            
                         }
                         
                         if(counter_launch >= 5){
@@ -304,7 +339,7 @@ void loop0 (void* pvParameters){
             g_Phase = phaseDecide(command, g_Phase);
         }
 
-        vTaskDelay(1000);
+        vTaskDelay(1);
     }
     
 }
@@ -374,7 +409,13 @@ void loop1 (void* pvParameters){
                 Serial.println(ypr[2] * 180/M_PI);
                 */
 
-                
+                mpu.getMotion6(&g_ax, &g_ay, &g_az, &g_gx, &g_gy, &g_gz);
+                mpu.dmpGetAccel(&aa, fifoBuffer);
+                float magnitude = aa.getMagnitude();
+                xQueueSend(queue_ax, &g_ax, portMAX_DELAY);
+                xQueueSend(queue_ay, &g_ay, portMAX_DELAY);
+                xQueueSend(queue_az, &g_az, portMAX_DELAY);
+                xQueueSend(queue_magnitude, &magnitude, portMAX_DELAY);
                 
                 g_yaw = ypr[0] * 180/M_PI;
                 g_pitch = ypr[1] * 180/M_PI;
