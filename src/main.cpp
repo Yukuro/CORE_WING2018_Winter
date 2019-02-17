@@ -33,6 +33,9 @@ float g_Pressure = 0.0;
 float g_Altitude = 0.0;
 float g_yaw = 0.0, g_pitch = 0.0, g_roll = 0.0;
 
+char oldcommand = '/';
+char oldtestcommand = '/';
+
 int16_t g_ax, g_ay, g_az;
 int16_t g_gx, g_gy, g_gz;
 
@@ -40,6 +43,7 @@ QueueHandle_t queue_ax;
 QueueHandle_t queue_ay;
 QueueHandle_t queue_az;
 QueueHandle_t queue_magnitude;
+QueueHandle_t queue_height;
 
 int counter = 0;
 
@@ -178,6 +182,10 @@ void setup() {
     if(queue_magnitude == NULL){
         Serial.println("can NOT create QUEUE_MAGNITUDE");
     }
+    queue_height = xQueueCreate(20, sizeof(float));
+    if(queue_height == NULL){
+        Serial.println("can NOT create QUEUE_HEIGHT");
+    }
 
     // initial setting of light sleep
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_AUTO);
@@ -208,10 +216,15 @@ void loop0 (void* pvParameters){
                 Serial.println("Enter TEST Sequence");
                 // wait for test command
                 if(COMM.available() > 0){
-                    char testcommand = COMM.read(); // this command consists of one ascii character
+                    char testcommand = COMM.read();// this command consists of one ascii character
                     Serial.write(testcommand);
                     Serial.println(" test command received.");
-                    g_Test = testDecide(testcommand, g_Test);
+                    if(testcommand != oldtestcommand){
+                        g_Test = testDecide(testcommand, g_Test);
+                    }else{
+                        g_Test = TEST_STAND;
+                    }
+                    oldtestcommand = testcommand;
                 }
 
                 switch(g_Test)
@@ -264,12 +277,25 @@ void loop0 (void* pvParameters){
                     case TEST_WINGALT:
                     {
                         int counter_wingalt = 0;
+                        float height = -100.0;
+                        float sum = 0;
+                        float average = -100.0;
+                        float oldaverage = -100.0;
                         Serial.println("[TEST] Start Verify the wing expansion (ALT) [TEST]");
-                        float height_old = 0.0;
-                        for(int i = 0; i < 10; i++){
-                            float height = g_Altitude; // TODO Confirm effectiveness
-                            if((height - height_old) < 0) counter_wingalt++;
-                            height_old = height;
+                        for(int line = 0; line < 5; line++){
+                            Serial.print("This try is ");
+                            Serial.println(line);
+                            for(int row = 0; row < 5; row++){
+                                xQueueReceive(queue_height, &height, portMAX_DELAY);
+                                Serial.println(height);
+                                sum += height;
+                            }
+                            average = sum / 5.0;
+                            if(average < oldaverage){
+                                counter_wingalt++;
+                            }
+                            oldaverage = average;
+                            vTaskDelay(100);
                         }
 
                         if(counter_wingalt >= 5){
@@ -336,8 +362,18 @@ void loop0 (void* pvParameters){
             char command = COMM.read(); // this command consists of one ascii character
             Serial.write(command);
             Serial.println(" received.");
-            g_Phase = phaseDecide(command, g_Phase);
+            if(command == 't' || command != oldcommand){
+                g_Phase = phaseDecide(command, g_Phase);
+            }else{
+                g_Phase = PHASE_STAND;
+            }
+            oldcommand = command;
         }
+
+        Serial.print("oldcommand: ");
+        Serial.print(oldcommand);
+        Serial.print(", oldtestcommand: ");
+        Serial.println(oldtestcommand);
 
         vTaskDelay(1);
     }
@@ -416,6 +452,7 @@ void loop1 (void* pvParameters){
                 xQueueSend(queue_ay, &g_ay, portMAX_DELAY);
                 xQueueSend(queue_az, &g_az, portMAX_DELAY);
                 xQueueSend(queue_magnitude, &magnitude, portMAX_DELAY);
+                xQueueSend(queue_height, &g_Altitude, portMAX_DELAY);
                 
                 g_yaw = ypr[0] * 180/M_PI;
                 g_pitch = ypr[1] * 180/M_PI;
@@ -482,7 +519,7 @@ systemPhase phaseDecide(char command, systemPhase oldPhase){
             return oldPhase;
             break;
     }
-    if(newPhase != PHASE_TEST && newPhase == oldPhase) newPhase = PHASE_STAND;
+    //if(newPhase != PHASE_TEST && newPhase == oldPhase) newPhase = PHASE_STAND;
     Serial.println(newPhase);
 
     return newPhase;
@@ -511,7 +548,7 @@ systemTest testDecide(char testcommand, systemTest oldTest){
             return oldTest;
             break;
     }
-    if(newTest == oldTest) newTest = TEST_STAND;
+    //if(newTest == oldTest) newTest = TEST_STAND;
 
     return newTest;
 }
