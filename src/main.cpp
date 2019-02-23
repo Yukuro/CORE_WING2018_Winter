@@ -33,8 +33,8 @@ float g_Pressure = 0.0;
 float g_Altitude = 0.0;
 float g_yaw = 0.0, g_pitch = 0.0, g_roll = 0.0;
 
-char oldcommand = '/';
-char oldtestcommand = '/';
+String oldcommand = "/";
+String oldtestcommand = "/";
 
 int16_t g_ax, g_ay, g_az;
 int16_t g_gx, g_gy, g_gz;
@@ -70,8 +70,8 @@ enum systemTest{
 volatile bool mpuInterrupt = false;     // indicates whether MPU interrupt pin has gone high
 
 void dmpDataReady();
-systemPhase phaseDecide(char command, systemPhase oldPhase);
-systemTest testDecide(char testcommand, systemTest oldTest);
+systemPhase phaseDecide(String command, systemPhase oldPhase);
+systemTest testDecide(String testcommand, systemTest oldTest);
 //void sendEmergency();
 //float checkMpu();
 
@@ -216,15 +216,15 @@ void loop0 (void* pvParameters){
                 Serial.println("Enter TEST Sequence");
                 // wait for test command
                 if(COMM.available() > 0){
-                    char testcommand = COMM.read();// this command consists of one ascii character
-                    Serial.write(testcommand);
+                    String testcommand = COMM.readStringUntil('\n');
+                    Serial.print(testcommand);
                     Serial.println(" test command received.");
                     if(testcommand != oldtestcommand){
                         g_Test = testDecide(testcommand, g_Test);
                     }else{
                         g_Test = TEST_STAND;
                     }
-                    oldtestcommand = testcommand;
+                    oldcommand = testcommand;
                 }
 
                 switch(g_Test)
@@ -359,10 +359,13 @@ void loop0 (void* pvParameters){
 
         // wait for command
         if(COMM.available() > 0){
-            char command = COMM.read(); // this command consists of one ascii character
-            Serial.write(command);
+            //char command = COMM.read(); // this command consists of one ascii character
+            String command = "";
+            command = COMM.readStringUntil('\n');
+            Serial.print(command);
             Serial.println(" received.");
-            if(command == 't' || command != oldcommand){
+
+            if(command == "t" || command != oldcommand){
                 g_Phase = phaseDecide(command, g_Phase);
             }else{
                 g_Phase = PHASE_STAND;
@@ -480,77 +483,28 @@ void dmpDataReady() {
     mpuInterrupt = true;
 }
 
-systemPhase phaseDecide(char command, systemPhase oldPhase){
+systemPhase phaseDecide(String command, systemPhase oldPhase){
+    //TODO: Implement one-time command
     systemPhase newPhase = PHASE_STAND;
-    switch(command){
-        case 'w':
-            newPhase = PHASE_WAIT;
-            break;
-
-        case 't':
-            newPhase = PHASE_TEST;
-            break;
-
-        case 'c':
-            newPhase = PHASE_CONFIG;
-            break;
-
-        case 'l':
-            newPhase = PHASE_LAUNCH;
-            break;
-
-        case 'r':
-            newPhase = PHASE_RISE;
-            break;
-
-        case 'g':
-            newPhase = PHASE_GLIDE;
-            break;
-        
-        case 's':
-            newPhase = PHASE_SPLASHDOWN;
-            break;
-
-        case 'e':
-            newPhase = PHASE_EMERGENCY;
-            break;
-
-        default:
-            return oldPhase;
-            break;
-    }
-    //if(newPhase != PHASE_TEST && newPhase == oldPhase) newPhase = PHASE_STAND;
-    Serial.println(newPhase);
-
-    return newPhase;
+    if(command=="w") return PHASE_WAIT;
+    if(command=="t") return PHASE_TEST;
+    if(command=="c") return PHASE_CONFIG;
+    if(command=="l") return PHASE_LAUNCH;
+    if(command=="r") return PHASE_RISE;
+    if(command=="g") return PHASE_GLIDE;
+    if(command=="s") return PHASE_SPLASHDOWN;
+    if(command=="e") return PHASE_EMERGENCY;
+    return oldPhase;
 }
 
-systemTest testDecide(char testcommand, systemTest oldTest){
+systemTest testDecide(String testcommand, systemTest oldTest){
+    //TODO: Implement one-time command
     systemTest newTest = TEST_STAND;
-    switch(testcommand){
-        case '0':
-            newTest = TEST_FLIGHTMODE;
-            break;
-
-        case '1':
-            newTest = TEST_LAUNCH;
-            break;
-        
-        case '2':
-            newTest = TEST_WINGALT;
-            break;
-
-        case '3':
-            newTest = TEST_WINGTIMER;
-            break;
-
-        default: 
-            return oldTest;
-            break;
-    }
-    //if(newTest == oldTest) newTest = TEST_STAND;
-
-    return newTest;
+    if(testcommand == "0") return TEST_FLIGHTMODE;
+    if(testcommand == "1") return TEST_LAUNCH;
+    if(testcommand == "2") return TEST_WINGALT;
+    if(testcommand == "3") return TEST_WINGTIMER;
+    return oldTest;
 }
 
 /*
