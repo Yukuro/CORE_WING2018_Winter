@@ -33,10 +33,21 @@ float g_Pressure = 0.0;
 float g_Altitude = 0.0;
 float g_yaw = 0.0, g_pitch = 0.0, g_roll = 0.0;
 
-String receivedcommand = "";
-char command ='/';
-char oldcommand = '/';
-char oldtestcommand = '/';
+String g_receivedcommand = "";
+char g_command ='/';
+char g_oldcommand = '/'; // for debug
+char g_oldtestcommand = '/'; // for debug
+
+int g_loop0counter = 1;
+
+//Global variables of the launch test in test mode
+int g_launchcounter = 0;
+
+//Global variables of the wingalt test in test mode
+int g_wingaltcounter = 0;
+float g_wingaltheight[5];
+float g_wingaltnewaverage = -100.0;
+float g_wingaltoldaverage = -100.0;
 
 int16_t g_ax, g_ay, g_az;
 int16_t g_gx, g_gy, g_gz;
@@ -72,7 +83,7 @@ enum systemTest{
 volatile bool mpuInterrupt = false;     // indicates whether MPU interrupt pin has gone high
 
 void dmpDataReady();
-systemPhase phaseDecide(char command, systemPhase oldPhase);
+systemPhase phaseDecide(char g_command, systemPhase oldPhase);
 systemTest testDecide(char testcommand, systemTest oldTest);
 //void sendEmergency();
 //float checkMpu();
@@ -220,9 +231,9 @@ void loop0 (void* pvParameters){
             {
                 Serial.println("Enter TEST Sequence");
 
-                char testcommand = receivedcommand[1];
+                char testcommand = g_receivedcommand[1];
                 Serial.print(testcommand);
-                Serial.println(" test command received.");
+                Serial.println(" test g_command received.");
 
                 switch(g_Test)
                 {
@@ -237,34 +248,28 @@ void loop0 (void* pvParameters){
                     {
                         int counter_launch = 0;
                         Serial.println("[TEST] Start the LAUNCH test [TEST]");
-                        for(int i = 0; i < 10; i++){
-                            //mpu.getMotion6(&g_ax, &g_ay, &g_az, &g_gx, &g_gy, &g_gz);
-                            //vTaskDelay(1);
-                            int16_t ax,ay,az;
-                            float magnitude;
-                            xQueueReceive(queue_ax, &ax, portMAX_DELAY);
-                            xQueueReceive(queue_ay, &ay, portMAX_DELAY);
-                            xQueueReceive(queue_az, &az, portMAX_DELAY);
-                            xQueueReceive(queue_magnitude, &magnitude, portMAX_DELAY);
-                            double composite = sqrt(pow(g_ax,2) + pow(g_ay,2) + pow(g_az,2));
-                            vTaskDelay(1); // TODO Confirm effectiveness
-                            Serial.print("ax: ");
-                            Serial.print(ax);
-                            Serial.print(",ay: ");
-                            Serial.print(ay);
-                            Serial.print(",az: ");
-                            Serial.print(az);
-                            Serial.print(",magnitude: ");
-                            Serial.println(magnitude);
-                            if(composite > 2500) counter_launch++;
+
+                        float magnitude;
+                        xQueueReceive(queue_magnitude, &magnitude, portMAX_DELAY);
+
+                        //Truncate the first 5 thousand times
+                        while(g_loop0counter > 0 && g_loop0counter < 5000){
+                            Serial.println("Waiting for the value to stabilize");
+                            g_loop0counter++;
+                            vTaskDelay(1);
                         }
-                        
+
+                        if(g_loop0counter >= 5000 && magnitude > 25000){
+                            if((g_loop0counter - g_launchcounter) == 1){ //Continuous judgment
+                                counter_launch++;
+                            }
+                            g_launchcounter = g_loop0counter;
+                        }
+
                         if(counter_launch >= 5){
                             Serial.println("[TEST] Ready for launch [TEST]");
-                            g_Phase = PHASE_LAUNCH;
                         }else{
                             Serial.println("[TEST] NOT Ready for launch [TEST]");
-                            
                         }
                         break;
 
@@ -274,26 +279,32 @@ void loop0 (void* pvParameters){
                     case TEST_WINGALT:
                     {
                         int counter_wingalt = 0;
-                        float height = -100.0;
-                        float sum = 0;
-                        float average = -100.0;
-                        float oldaverage = -100.0;
-                        Serial.println("[TEST] Start Verify the wing expansion (ALT) [TEST]");
-                        for(int line = 0; line < 5; line++){
-                            Serial.print("This try is ");
-                            Serial.println(line);
-                            for(int row = 0; row < 5; row++){
-                                xQueueReceive(queue_height, &height, portMAX_DELAY);
-                                Serial.println(height);
-                                sum += height;
-                            }
-                            average = sum / 5.0;
-                            if(average < oldaverage){
+                        int validation = 5;
+
+                        Serial.println(g_loop0counter);
+                        if(g_loop0counter == 1) Serial.println("[TEST] Start Verify the wing expansion (ALT) [TEST]");
+
+                        //Obtain moving g_wingaltnewaverage
+                        while(g_wingaltcounter < 5){
+                            g_wingaltheight[g_wingaltcounter] = bmp.readAltitude(1013.25);
+                            g_wingaltcounter++;
+                        }
+
+                        for(int i = (validation - 1); i > 0; i--) g_wingaltheight[i] = g_wingaltheight[i-1];
+                        g_wingaltheight[0] = bmp.readAltitude(1013.25);
+
+                        g_wingaltnewaverage = 0.0;
+                        for(int i = 0; i < validation; i++) g_wingaltnewaverage += g_wingaltheight[i];
+                        g_wingaltnewaverage = g_wingaltnewaverage / float(validation);        
+                        Serial.println(g_wingaltnewaverage);          
+
+                        if(g_wingaltnewaverage < g_wingaltoldaverage){
+                            if((g_loop0counter - g_wingaltcounter) == 1){ //Continuous judgment
                                 counter_wingalt++;
                             }
-                            oldaverage = average;
-                            vTaskDelay(100);
+                            g_wingaltcounter = g_loop0counter;
                         }
+                        g_wingaltoldaverage = g_wingaltnewaverage;
 
                         if(counter_wingalt >= 5){
                             Serial.println("Ready for expand the wing");
@@ -369,32 +380,33 @@ void loop0 (void* pvParameters){
             }
         }
 
-        // wait for command
+        // wait for g_command
         if(COMM.available() > 0){
-            receivedcommand = COMM.readStringUntil('\n');
-            Serial.print(receivedcommand);
-            Serial.println(" receivedcommand received.");
-            command = receivedcommand[0];
-            Serial.print(command);
+            g_receivedcommand = COMM.readStringUntil('\n');
+            Serial.print(g_receivedcommand);
+            Serial.println(" g_receivedcommand received.");
+            g_command = g_receivedcommand[0];
+            Serial.print(g_command);
             Serial.println(" received.");
 
             //In test mode the first letter is the same
-            if(command == 't' || command != oldcommand){
-                g_Phase = phaseDecide(command, g_Phase);
+            if(g_command == 't' || g_command != g_oldcommand){
+                g_Phase = phaseDecide(g_command, g_Phase);
             }else{
                 g_Phase = PHASE_STAND;
             }
-            oldcommand = command;
+            g_oldcommand = g_command;
         }
 
         //debug status
-        Serial.print("oldcommand: ");
-        Serial.print(oldcommand);
-        Serial.print(", oldtestcommand: ");
-        Serial.println(oldtestcommand);
+        Serial.print("g_oldcommand: ");
+        Serial.print(g_oldcommand);
+        Serial.print(", g_oldtestcommand: ");
+        Serial.println(g_oldtestcommand);
 
         vTaskDelay(1);
     }
+    g_loop0counter++;
     
 }
 
@@ -498,16 +510,16 @@ void dmpDataReady() {
     mpuInterrupt = true;
 }
 
-systemPhase phaseDecide(char command, systemPhase oldPhase){
+systemPhase phaseDecide(char g_command, systemPhase oldPhase){
     systemPhase newPhase = PHASE_STAND;
-    if(command == 'w') return PHASE_WAIT;
-    if(command == 't') return PHASE_TEST;
-    if(command == 'c') return PHASE_CONFIG;
-    if(command == 'l') return PHASE_LAUNCH;
-    if(command == 'r') return PHASE_RISE;
-    if(command == 'g') return PHASE_GLIDE;
-    if(command == 's') return PHASE_SPLASHDOWN;
-    if(command == 'e') return PHASE_EMERGENCY;
+    if(g_command == 'w') return PHASE_WAIT;
+    if(g_command == 't') return PHASE_TEST;
+    if(g_command == 'c') return PHASE_CONFIG;
+    if(g_command == 'l') return PHASE_LAUNCH;
+    if(g_command == 'r') return PHASE_RISE;
+    if(g_command == 'g') return PHASE_GLIDE;
+    if(g_command == 's') return PHASE_SPLASHDOWN;
+    if(g_command == 'e') return PHASE_EMERGENCY;
     return oldPhase;
 }
 
