@@ -223,12 +223,6 @@ void loop0 (void* pvParameters){
                 char testcommand = receivedcommand[1];
                 Serial.print(testcommand);
                 Serial.println(" test command received.");
-                if(testcommand != oldtestcommand){
-                    g_Test = testDecide(testcommand, g_Test);
-                }else{
-                    g_Test = TEST_STAND;
-                }
-                oldtestcommand = testcommand;
 
                 switch(g_Test)
                 {
@@ -377,7 +371,9 @@ void loop0 (void* pvParameters){
 
         // wait for command
         if(COMM.available() > 0){
-            String receivedcommand = COMM.readStringUntil('\n');
+            receivedcommand = COMM.readStringUntil('\n');
+            Serial.print(receivedcommand);
+            Serial.println(" receivedcommand received.");
             command = receivedcommand[0];
             Serial.print(command);
             Serial.println(" received.");
@@ -391,6 +387,7 @@ void loop0 (void* pvParameters){
             oldcommand = command;
         }
 
+        //debug status
         Serial.print("oldcommand: ");
         Serial.print(oldcommand);
         Serial.print(", oldtestcommand: ");
