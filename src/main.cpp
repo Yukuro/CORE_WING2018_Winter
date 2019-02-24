@@ -33,8 +33,10 @@ float g_Pressure = 0.0;
 float g_Altitude = 0.0;
 float g_yaw = 0.0, g_pitch = 0.0, g_roll = 0.0;
 
-String oldcommand = "/";
-String oldtestcommand = "/";
+String receivedcommand = "";
+char command ='/';
+char oldcommand = '/';
+char oldtestcommand = '/';
 
 int16_t g_ax, g_ay, g_az;
 int16_t g_gx, g_gy, g_gz;
@@ -70,8 +72,8 @@ enum systemTest{
 volatile bool mpuInterrupt = false;     // indicates whether MPU interrupt pin has gone high
 
 void dmpDataReady();
-systemPhase phaseDecide(String command, systemPhase oldPhase);
-systemTest testDecide(String testcommand, systemTest oldTest);
+systemPhase phaseDecide(char command, systemPhase oldPhase);
+systemTest testDecide(char testcommand, systemTest oldTest);
 //void sendEmergency();
 //float checkMpu();
 
@@ -206,26 +208,27 @@ void loop0 (void* pvParameters){
         switch (g_Phase)
         {
             case PHASE_WAIT:
+            {
                 Serial.println("After 5 seconds enter light sleep mode");
                 delay(5000);
                 esp_light_sleep_start();
                 Serial.println("I woke up");
                 break;
+            }
 
             case PHASE_TEST:
+            {
                 Serial.println("Enter TEST Sequence");
-                // wait for test command
-                if(COMM.available() > 0){
-                    String testcommand = COMM.readStringUntil('\n');
-                    Serial.print(testcommand);
-                    Serial.println(" test command received.");
-                    if(testcommand != oldtestcommand){
-                        g_Test = testDecide(testcommand, g_Test);
-                    }else{
-                        g_Test = TEST_STAND;
-                    }
-                    oldcommand = testcommand;
+
+                char testcommand = receivedcommand[1];
+                Serial.print(testcommand);
+                Serial.println(" test command received.");
+                if(testcommand != oldtestcommand){
+                    g_Test = testDecide(testcommand, g_Test);
+                }else{
+                    g_Test = TEST_STAND;
                 }
+                oldtestcommand = testcommand;
 
                 switch(g_Test)
                 {
@@ -325,47 +328,62 @@ void loop0 (void* pvParameters){
                     }
 
                 }
-                Serial.println("00000");
-                break;
-            Serial.println("11111");
+
+            }
 
             case PHASE_CONFIG:
+            {
                 break;
+            }
 
             case PHASE_LAUNCH:
+            {
                 break;
+            }
 
             case PHASE_RISE:
+            {
                 break;
+            }
 
             case PHASE_GLIDE:
+            {
                 break;
+            }
 
             case PHASE_SPLASHDOWN:
+            {
                 break;
+            }
 
             case PHASE_EMERGENCY:
+            {
                 Serial.println("EMERGENCY Phase");
                 //sendEmergency();
                 break;
+            }
 
             case PHASE_STAND:
+            {
                 Serial.println("PHASE_STAND");
                 break;
+            }
         
             default:
+            {
                 break;
+            }
         }
 
         // wait for command
         if(COMM.available() > 0){
-            //char command = COMM.read(); // this command consists of one ascii character
-            String command = "";
-            command = COMM.readStringUntil('\n');
+            String receivedcommand = COMM.readStringUntil('\n');
+            command = receivedcommand[0];
             Serial.print(command);
             Serial.println(" received.");
 
-            if(command == "t" || command != oldcommand){
+            //In test mode the first letter is the same
+            if(command == 't' || command != oldcommand){
                 g_Phase = phaseDecide(command, g_Phase);
             }else{
                 g_Phase = PHASE_STAND;
@@ -483,27 +501,25 @@ void dmpDataReady() {
     mpuInterrupt = true;
 }
 
-systemPhase phaseDecide(String command, systemPhase oldPhase){
-    //TODO: Implement one-time command
+systemPhase phaseDecide(char command, systemPhase oldPhase){
     systemPhase newPhase = PHASE_STAND;
-    if(command=="w") return PHASE_WAIT;
-    if(command=="t") return PHASE_TEST;
-    if(command=="c") return PHASE_CONFIG;
-    if(command=="l") return PHASE_LAUNCH;
-    if(command=="r") return PHASE_RISE;
-    if(command=="g") return PHASE_GLIDE;
-    if(command=="s") return PHASE_SPLASHDOWN;
-    if(command=="e") return PHASE_EMERGENCY;
+    if(command == 'w') return PHASE_WAIT;
+    if(command == 't') return PHASE_TEST;
+    if(command == 'c') return PHASE_CONFIG;
+    if(command == 'l') return PHASE_LAUNCH;
+    if(command == 'r') return PHASE_RISE;
+    if(command == 'g') return PHASE_GLIDE;
+    if(command == 's') return PHASE_SPLASHDOWN;
+    if(command == 'e') return PHASE_EMERGENCY;
     return oldPhase;
 }
 
-systemTest testDecide(String testcommand, systemTest oldTest){
-    //TODO: Implement one-time command
+systemTest testDecide(char testcommand, systemTest oldTest){
     systemTest newTest = TEST_STAND;
-    if(testcommand == "0") return TEST_FLIGHTMODE;
-    if(testcommand == "1") return TEST_LAUNCH;
-    if(testcommand == "2") return TEST_WINGALT;
-    if(testcommand == "3") return TEST_WINGTIMER;
+    if(testcommand == '0') return TEST_FLIGHTMODE;
+    if(testcommand == '1') return TEST_LAUNCH;
+    if(testcommand == '2') return TEST_WINGALT;
+    if(testcommand == '3') return TEST_WINGTIMER;
     return oldTest;
 }
 
