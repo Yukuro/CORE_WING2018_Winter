@@ -19,7 +19,7 @@ uint8_t mpuIntStatus;   // holds actual interrupt status byte from MPU
 uint8_t devStatus;      // return status after each device operation (0 = success, !0 = error)
 uint16_t packetSize;    // expected DMP packet size (default is 42 bytes)
 uint16_t fifoCount;     // count of all bytes currently in FIFO
-uint8_t fifoBuffer[64]; // FIFO storage buffer
+uint8_t fifoBuffer[1024]; // FIFO storage buffer
 
 Quaternion q;           // [w, x, y, z]         quaternion container
 VectorInt16 aa;         // [x, y, z]            accel sensor measurements
@@ -35,26 +35,27 @@ float g_yaw = 0.0, g_pitch = 0.0, g_roll = 0.0;
 
 String g_receivedcommand = "";
 char g_command ='/';
+char g_testcommand = '/';
 char g_oldcommand = '/'; // for debug
-char g_oldtestcommand = '/'; // for debug
 
+//Global variables of the loop0
 int g_loop0counter = 1;
 
 //Global variables of the launch test in test mode
 int g_launchcounter = 0;
 
 //Global variables of the wingalt test in test mode
-int g_wingaltcounter = 0;
-float g_wingaltheight[5];
-float g_wingaltnewaverage = -100.0;
-float g_wingaltoldaverage = -100.0;
+int g_wingcounter = 0;
+float g_wingheight[5];
+float g_wingnewaverage = -100.0;
+float g_wingoldaverage = -100.0;
+
+//for the wingXXX test
+bool successflag_timer = false;
 
 int16_t g_ax, g_ay, g_az;
 int16_t g_gx, g_gy, g_gz;
 
-QueueHandle_t queue_ax;
-QueueHandle_t queue_ay;
-QueueHandle_t queue_az;
 QueueHandle_t queue_magnitude;
 QueueHandle_t queue_height;
 
@@ -179,23 +180,11 @@ void setup() {
     g_Phase = PHASE_WAIT;
 
     // create a queue for inter-core data sharing
-    queue_ax = xQueueCreate(10, sizeof(float));
-    if(queue_ax == NULL){
-        Serial.println("can NOT create QUEUE_AX");
-    }
-    queue_ay = xQueueCreate(10, sizeof(float));
-    if(queue_ay == NULL){
-        Serial.println("can NOT create QUEUE_AY");
-    }
-    queue_az = xQueueCreate(10, sizeof(float));
-    if(queue_az == NULL){
-        Serial.println("can NOT create QUEUE_AZ");
-    }
-    queue_magnitude = xQueueCreate(10, sizeof(float));
+    queue_magnitude = xQueueCreate(512, sizeof(float));
     if(queue_magnitude == NULL){
         Serial.println("can NOT create QUEUE_MAGNITUDE");
     }
-    queue_height = xQueueCreate(20, sizeof(float));
+    queue_height = xQueueCreate(512, sizeof(float));
     if(queue_height == NULL){
         Serial.println("can NOT create QUEUE_HEIGHT");
     }
@@ -207,14 +196,15 @@ void setup() {
     esp_sleep_enable_ext0_wakeup(GPIO_NUM_33, 0);
 
     xTaskCreatePinnedToCore(loop0, "Loop0", 8192, NULL, 2, &th[0], 0); // loop0 manipulate g_Phase dicision
-    delay(500);
+    vTaskDelay(500);
     xTaskCreatePinnedToCore(loop1, "Loop1", 8192, NULL, 2, &th[1], 1); // loop1 manipulate sensor processing
-    delay(500);
 }
 
 /*  loop0 manipulate g_Phase dicision  */
 void loop0 (void* pvParameters){
     while(1){
+        TickType_t starttick = xTaskGetTickCount();
+        //int64_t starttime = esp_timer_get_time();
         //Serial.println("loop0 is working");
         switch (g_Phase)
         {
@@ -235,6 +225,9 @@ void loop0 (void* pvParameters){
                 Serial.print(testcommand);
                 Serial.println(" test g_command received.");
 
+                g_Test = testDecide(testcommand, g_Test);
+                Serial.println(g_Test);
+
                 switch(g_Test)
                 {
                     case TEST_FLIGHTMODE:
@@ -248,16 +241,23 @@ void loop0 (void* pvParameters){
                     {
                         int counter_launch = 0;
                         Serial.println("[TEST] Start the LAUNCH test [TEST]");
+                        Serial.println(g_loop0counter);
 
-                        float magnitude;
-                        xQueueReceive(queue_magnitude, &magnitude, portMAX_DELAY);
+                        float magnitude = 0.0;
+                        BaseType_t xStatus = xQueueReceive(queue_magnitude, &magnitude, 0);
+                        if(xStatus == pdTRUE) Serial.println("Sucess getting mpu6050");
+                        if(xStatus == pdFALSE) break;
+                        Serial.println(xStatus);
+                        Serial.println(magnitude);
 
                         //Truncate the first 5 thousand times
-                        while(g_loop0counter > 0 && g_loop0counter < 5000){
+                        /*
+                        while(g_loop0counter > 0 && g_loop0counter < 500){
                             Serial.println("Waiting for the value to stabilize");
                             g_loop0counter++;
-                            vTaskDelay(1);
+                            vTaskDelay(100);
                         }
+                        */
 
                         if(g_loop0counter >= 5000 && magnitude > 25000){
                             if((g_loop0counter - g_launchcounter) == 1){ //Continuous judgment
@@ -284,27 +284,27 @@ void loop0 (void* pvParameters){
                         Serial.println(g_loop0counter);
                         if(g_loop0counter == 1) Serial.println("[TEST] Start Verify the wing expansion (ALT) [TEST]");
 
-                        //Obtain moving g_wingaltnewaverage
-                        while(g_wingaltcounter < 5){
-                            g_wingaltheight[g_wingaltcounter] = bmp.readAltitude(1013.25);
-                            g_wingaltcounter++;
+                        //Obtain moving g_wingnewaverage
+                        while(g_wingcounter < 5){
+                            g_wingheight[g_wingcounter] = bmp.readAltitude(1013.25);
+                            g_wingcounter++;
                         }
 
-                        for(int i = (validation - 1); i > 0; i--) g_wingaltheight[i] = g_wingaltheight[i-1];
-                        g_wingaltheight[0] = bmp.readAltitude(1013.25);
+                        for(int i = (validation - 1); i > 0; i--) g_wingheight[i] = g_wingheight[i-1];
+                        g_wingheight[0] = bmp.readAltitude(1013.25);
 
-                        g_wingaltnewaverage = 0.0;
-                        for(int i = 0; i < validation; i++) g_wingaltnewaverage += g_wingaltheight[i];
-                        g_wingaltnewaverage = g_wingaltnewaverage / float(validation);        
-                        Serial.println(g_wingaltnewaverage);          
+                        g_wingnewaverage = 0.0;
+                        for(int i = 0; i < validation; i++) g_wingnewaverage += g_wingheight[i];
+                        g_wingnewaverage = g_wingnewaverage / float(validation);        
+                        Serial.println(g_wingnewaverage);          
 
-                        if(g_wingaltnewaverage < g_wingaltoldaverage){
-                            if((g_loop0counter - g_wingaltcounter) == 1){ //Continuous judgment
+                        if(g_wingnewaverage < g_wingoldaverage){
+                            if((g_loop0counter - g_wingcounter) == 1){ //Continuous judgment
                                 counter_wingalt++;
                             }
-                            g_wingaltcounter = g_loop0counter;
+                            g_wingcounter = g_loop0counter;
                         }
-                        g_wingaltoldaverage = g_wingaltnewaverage;
+                        g_wingoldaverage = g_wingnewaverage;
 
                         if(counter_wingalt >= 5){
                             Serial.println("Ready for expand the wing");
@@ -314,9 +314,51 @@ void loop0 (void* pvParameters){
                         break;
                     }
 
+                    // TODO : optimize
                     case TEST_WINGTIMER:
                     {
-                        break;
+                        //Mostly wingalt's copy (except for timer condition)
+                        //Activate the timer at the same time as the launch judgment
+                        int counter_wingalt = 0;
+                        int validation = 5;
+
+                        int64_t entrytime = esp_timer_get_time();
+                        if(entrytime > 5000000 && entrytime < 10000000){
+                            Serial.println(g_loop0counter);
+                            if(g_loop0counter == 1) Serial.println("[TEST] Start Verify the wing expansion (ALT) [TEST]");
+                            while(g_wingcounter < 5){
+                            g_wingheight[g_wingcounter] = bmp.readAltitude(1013.25);
+                            g_wingcounter++;
+                            }
+
+                            for(int i = (validation-1); i>0 ; i--) g_wingheight[i] = g_wingheight[i-1];
+                            g_wingheight[0] = bmp.readAltitude(1013.25);
+
+                            g_wingnewaverage = 0.0;
+                            for(int i = 0; i < validation; i++) g_wingnewaverage += g_wingheight[i]; //sum
+                            g_wingnewaverage = g_wingnewaverage/float(validation);        
+                            Serial.println(g_wingnewaverage);          
+
+                            if(g_wingnewaverage < g_wingoldaverage){
+                                if((g_loop0counter - g_wingcounter) == 1){
+                                    counter_wingalt++;
+                                }
+                                g_wingcounter = g_loop0counter;
+                            }
+                            g_wingoldaverage = g_wingnewaverage;
+
+                            if(counter_wingalt >= 5){
+                                Serial.println("Ready for expand the wing");
+                                successflag_timer = true;
+                            }else{
+                                Serial.println("NOT Ready for expand the wing");
+                                successflag_timer = false;
+                            }
+                            break;
+                        }else if(!successflag_timer && entrytime >= 10000000){
+                            Serial.println("FORCE expand the wing");
+                            break;
+                        }
                     }
 
 
@@ -332,6 +374,7 @@ void loop0 (void* pvParameters){
                         break;
                     }
 
+                break;
                 }
 
             }
@@ -387,7 +430,7 @@ void loop0 (void* pvParameters){
             Serial.println(" g_receivedcommand received.");
             g_command = g_receivedcommand[0];
             Serial.print(g_command);
-            Serial.println(" received.");
+            Serial.print(" received.");
 
             //In test mode the first letter is the same
             if(g_command == 't' || g_command != g_oldcommand){
@@ -400,20 +443,24 @@ void loop0 (void* pvParameters){
 
         //debug status
         Serial.print("g_oldcommand: ");
-        Serial.print(g_oldcommand);
-        Serial.print(", g_oldtestcommand: ");
-        Serial.println(g_oldtestcommand);
+        Serial.println(g_oldcommand);
 
-        vTaskDelay(1);
+        g_loop0counter++;
+        vTaskDelay(30); //Need to be adjusted
+
+        TickType_t endtick = xTaskGetTickCount();
+        TickType_t executiontick = endtick - starttick;
+        Serial.print("Execution tick (LOOP0) is ");
+        Serial.println(executiontick);
     }
-    g_loop0counter++;
-    
 }
 
 /*  loop1 manipulate sensor processing  */
 void loop1 (void* pvParameters){
     while(1){
-        //Serial.println("loop1 is working");
+        TickType_t starttick = xTaskGetTickCount(); 
+        //int64_t starttime = esp_timer_get_time();
+        Serial.println("loop1 is working");
 
         // get sensor value
         // from BMP280
@@ -424,7 +471,7 @@ void loop1 (void* pvParameters){
 
         // if programming failed, don't try to do anything
         if (!dmpReady){
-            Serial.println("!!! Emergency situation occurred !!!");
+            Serial.println("!!! EMERGENCY EMERGENCY EMERGENCY !!!");
             g_Phase = PHASE_EMERGENCY;
         }
 
@@ -460,45 +507,31 @@ void loop1 (void* pvParameters){
             // (this lets us immediately read more without waiting for an interrupt)
             fifoCount -= packetSize;
 
-            #ifdef OUTPUT_READABLE_YAWPITCHROLL
-                // display Euler angles in degrees
-                mpu.dmpGetQuaternion(&q, fifoBuffer);
-                mpu.dmpGetGravity(&gravity, &q);
-                mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-                
-                /*
-                Serial.print("ypr\t");
-                Serial.print(ypr[0] * 180/M_PI);
-                Serial.print("\t");
-                Serial.print(ypr[1] * 180/M_PI);
-                Serial.print("\t");
-                Serial.println(ypr[2] * 180/M_PI);
-                */
+            mpu.dmpGetAccel(&aa, fifoBuffer);
+            float magnitude = aa.getMagnitude();
 
-                mpu.getMotion6(&g_ax, &g_ay, &g_az, &g_gx, &g_gy, &g_gz);
-                mpu.dmpGetAccel(&aa, fifoBuffer);
-                float magnitude = aa.getMagnitude();
-                xQueueSend(queue_ax, &g_ax, portMAX_DELAY);
-                xQueueSend(queue_ay, &g_ay, portMAX_DELAY);
-                xQueueSend(queue_az, &g_az, portMAX_DELAY);
-                xQueueSend(queue_magnitude, &magnitude, portMAX_DELAY);
-                xQueueSend(queue_height, &g_Altitude, portMAX_DELAY);
-                
-                g_yaw = ypr[0] * 180/M_PI;
-                g_pitch = ypr[1] * 180/M_PI;
-                g_roll = ypr[2] * 180/M_PI;
-            #endif
+            BaseType_t xStatus_magnitude = xQueueSend(queue_magnitude, &magnitude, 0);
+            if(xStatus_magnitude == pdTRUE){
+                Serial.println("SUCCESS: MAGNITUDE");
+            }else{
+                Serial.println("FAILED: MAGNITUDE");
+            }
+
+            BaseType_t xStatus_height = xQueueSend(queue_height, &g_Altitude, 0);
+            if(xStatus_height == pdTRUE){
+                Serial.println("SUCCESS: HEIGHT");
+            }else{
+                Serial.println("FAILED: HEIGHT");
+            }
+
         }
 
-        /*
-        Serial.print(g_Temperature);
-        Serial.print("\t");
-        Serial.print(g_Pressure);
-        Serial.print("\t");
-        Serial.println(g_Altitude);
-        */
+        vTaskDelay(200); //Need to be adjusted
 
-        vTaskDelay(1);
+        TickType_t endtick = xTaskGetTickCount();
+        TickType_t executiontick = endtick - starttick;
+        Serial.print("Execution tick (LOOP1) is ");
+        Serial.println(executiontick);
     }
     
 }
