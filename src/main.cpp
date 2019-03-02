@@ -19,7 +19,7 @@ uint8_t mpuIntStatus;   // holds actual interrupt status byte from MPU
 uint8_t devStatus;      // return status after each device operation (0 = success, !0 = error)
 uint16_t packetSize;    // expected DMP packet size (default is 42 bytes)
 uint16_t fifoCount;     // count of all bytes currently in FIFO
-uint8_t fifoBuffer[1024]; // FIFO storage buffer
+uint8_t fifoBuffer[64]; // FIFO storage buffer
 
 Quaternion q;           // [w, x, y, z]         quaternion container
 VectorInt16 aa;         // [x, y, z]            accel sensor measurements
@@ -86,9 +86,6 @@ volatile bool mpuInterrupt = false;     // indicates whether MPU interrupt pin h
 void dmpDataReady();
 systemPhase phaseDecide(char g_command, systemPhase oldPhase);
 systemTest testDecide(char testcommand, systemTest oldTest);
-//void sendEmergency();
-//float checkMpu();
-
 
 void loop0(void* pvParameters);
 void loop1(void* pvParameters);
@@ -219,11 +216,11 @@ void loop0 (void* pvParameters){
 
             case PHASE_TEST:
             {
-                Serial.println("Enter TEST Sequence");
+                //Serial.println("Enter TEST Sequence");
 
                 char testcommand = g_receivedcommand[1];
                 Serial.print(testcommand);
-                Serial.println(" test g_command received.");
+                //Serial.println(" test g_command received.");
 
                 g_Test = testDecide(testcommand, g_Test);
                 Serial.println(g_Test);
@@ -240,14 +237,15 @@ void loop0 (void* pvParameters){
                     case TEST_LAUNCH:
                     {
                         int counter_launch = 0;
-                        Serial.println("[TEST] Start the LAUNCH test [TEST]");
+                        //Serial.println("[TEST] Start the LAUNCH test [TEST]");
                         Serial.println(g_loop0counter);
 
                         float magnitude = 0.0;
                         BaseType_t xStatus = xQueueReceive(queue_magnitude, &magnitude, 0);
                         if(xStatus == pdTRUE) Serial.println("Sucess getting mpu6050");
                         if(xStatus == pdFALSE) break;
-                        Serial.println(xStatus);
+                        //Serial.println(xStatus);
+                        Serial.print("magnitude is ");
                         Serial.println(magnitude);
 
                         //Truncate the first 5 thousand times
@@ -426,11 +424,11 @@ void loop0 (void* pvParameters){
         // wait for g_command
         if(COMM.available() > 0){
             g_receivedcommand = COMM.readStringUntil('\n');
-            Serial.print(g_receivedcommand);
-            Serial.println(" g_receivedcommand received.");
+            //Serial.print(g_receivedcommand);
+            //Serial.println(" g_receivedcommand received.");
             g_command = g_receivedcommand[0];
-            Serial.print(g_command);
-            Serial.print(" received.");
+            //Serial.print(g_command);
+            //Serial.print(" received.");
 
             //In test mode the first letter is the same
             if(g_command == 't' || g_command != g_oldcommand){
@@ -442,16 +440,17 @@ void loop0 (void* pvParameters){
         }
 
         //debug status
-        Serial.print("g_oldcommand: ");
-        Serial.println(g_oldcommand);
+        //Serial.print("g_oldcommand: ");
+        //Serial.println(g_oldcommand);
 
         g_loop0counter++;
-        vTaskDelay(30); //Need to be adjusted
 
         TickType_t endtick = xTaskGetTickCount();
         TickType_t executiontick = endtick - starttick;
         Serial.print("Execution tick (LOOP0) is ");
         Serial.println(executiontick);
+
+        vTaskDelay(10); //Need to be adjusted
     }
 }
 
@@ -460,6 +459,8 @@ void loop1 (void* pvParameters){
     while(1){
         TickType_t starttick = xTaskGetTickCount(); 
         //int64_t starttime = esp_timer_get_time();
+        Serial.print("fifoCount at first are ");
+        Serial.printf("%"PRId16"\n",fifoCount);
         Serial.println("loop1 is working");
 
         // get sensor value
@@ -526,12 +527,14 @@ void loop1 (void* pvParameters){
 
         }
 
-        vTaskDelay(200); //Need to be adjusted
-
         TickType_t endtick = xTaskGetTickCount();
         TickType_t executiontick = endtick - starttick;
         Serial.print("Execution tick (LOOP1) is ");
         Serial.println(executiontick);
+
+        Serial.print("fifoCount at end are ");
+        Serial.printf("%"PRId16"\n",fifoCount);
+        vTaskDelay(30); //Need to be adjusted
     }
     
 }
