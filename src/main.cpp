@@ -28,11 +28,6 @@ VectorInt16 aaWorld;    // [x, y, z]            world-frame accel sensor measure
 VectorFloat gravity;    // [x, y, z]            gravity vector
 float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
 
-float g_Temperature = 0.0;
-float g_Pressure = 0.0;
-float g_Altitude = 0.0;
-float g_yaw = 0.0, g_pitch = 0.0, g_roll = 0.0;
-
 String g_receivedcommand = "";
 char g_command ='/';
 char g_testcommand = '/';
@@ -57,7 +52,7 @@ int16_t g_ax, g_ay, g_az;
 int16_t g_gx, g_gy, g_gz;
 
 QueueHandle_t queue_magnitude;
-QueueHandle_t queue_height;
+QueueHandle_t queue_altitude;
 
 int counter = 0;
 
@@ -181,8 +176,8 @@ void setup() {
     if(queue_magnitude == NULL){
         Serial.println("can NOT create QUEUE_MAGNITUDE");
     }
-    queue_height = xQueueCreate(512, sizeof(float));
-    if(queue_height == NULL){
+    queue_altitude = xQueueCreate(512, sizeof(float));
+    if(queue_altitude == NULL){
         Serial.println("can NOT create QUEUE_HEIGHT");
     }
 
@@ -200,8 +195,8 @@ void setup() {
 /*  loop0 manipulate g_Phase dicision  */
 void loop0 (void* pvParameters){
     while(1){
+        g_loop0counter++;
         TickType_t starttick = xTaskGetTickCount();
-        //int64_t starttime = esp_timer_get_time();
         //Serial.println("loop0 is working");
         switch (g_Phase)
         {
@@ -219,11 +214,13 @@ void loop0 (void* pvParameters){
                 //Serial.println("Enter TEST Sequence");
 
                 char testcommand = g_receivedcommand[1];
-                Serial.print(testcommand);
-                //Serial.println(" test g_command received.");
-
                 g_Test = testDecide(testcommand, g_Test);
-                Serial.println(g_Test);
+                
+                /* debug status */
+                Serial.print(testcommand);
+                Serial.print(" testcommand received. So system decided ");
+                Serial.print(g_Test);
+                Serial.println(" TEST.");
 
                 switch(g_Test)
                 {
@@ -242,8 +239,12 @@ void loop0 (void* pvParameters){
 
                         float magnitude = 0.0;
                         BaseType_t xStatus = xQueueReceive(queue_magnitude, &magnitude, 0);
-                        if(xStatus == pdTRUE) Serial.println("Sucess getting mpu6050");
-                        if(xStatus == pdFALSE) break;
+                        if(xStatus == pdTRUE){
+                            Serial.println("SUCCESS : received TEST_LAUNCH");
+                        }else{
+                            Serial.println("FAILED : received TEST_LAUNCH");
+                            break;
+                        }
                         //Serial.println(xStatus);
                         Serial.print("magnitude is ");
                         Serial.println(magnitude);
@@ -265,9 +266,9 @@ void loop0 (void* pvParameters){
                         }
 
                         if(counter_launch >= 5){
-                            Serial.println("[TEST] Ready for launch [TEST]");
+                            Serial.println("[TEST] READY for launch [TEST]");
                         }else{
-                            Serial.println("[TEST] NOT Ready for launch [TEST]");
+                            Serial.println("[TEST] NOT READY for launch [TEST]");
                         }
                         break;
 
@@ -276,24 +277,37 @@ void loop0 (void* pvParameters){
 
                     case TEST_WINGALT:
                     {
+                        Serial.println("ENTRY : TEST_WINGALT");
                         int counter_wingalt = 0;
                         int validation = 5;
+                        float altitude;
 
                         Serial.println(g_loop0counter);
                         if(g_loop0counter == 1) Serial.println("[TEST] Start Verify the wing expansion (ALT) [TEST]");
 
-                        //Obtain moving g_wingnewaverage
-                        while(g_wingcounter < 5){
-                            g_wingheight[g_wingcounter] = bmp.readAltitude(1013.25);
-                            g_wingcounter++;
+                        for(int i = (validation - 1); i > 0; i--) g_wingheight[i] = g_wingheight[i-1];
+
+                        BaseType_t xStatus = xQueueReceive(queue_altitude, &altitude, 0);
+                        //Serial.println(altitude);
+                        if(xStatus == pdTRUE){
+                            Serial.println("SUCCESS : receive TEST_WINGALT");
+                        }else{
+                            Serial.println("FAILED : receive TEST_WINGALT");
+                            continue;
                         }
 
-                        for(int i = (validation - 1); i > 0; i--) g_wingheight[i] = g_wingheight[i-1];
-                        g_wingheight[0] = bmp.readAltitude(1013.25);
+                        if(g_wingcounter < 5){
+                            g_wingheight[g_wingcounter] = altitude;
+                            g_wingcounter++;
+                            continue;
+                        }else{
+                            g_wingheight[0] = altitude;
+                        }
 
                         g_wingnewaverage = 0.0;
                         for(int i = 0; i < validation; i++) g_wingnewaverage += g_wingheight[i];
-                        g_wingnewaverage = g_wingnewaverage / float(validation);        
+                        g_wingnewaverage = g_wingnewaverage / float(validation);
+                        Serial.print("Average is ");      
                         Serial.println(g_wingnewaverage);          
 
                         if(g_wingnewaverage < g_wingoldaverage){
@@ -305,55 +319,77 @@ void loop0 (void* pvParameters){
                         g_wingoldaverage = g_wingnewaverage;
 
                         if(counter_wingalt >= 5){
-                            Serial.println("Ready for expand the wing");
+                            Serial.println("READY for expand the wing");
                         }else{
-                            Serial.println("NOT Ready for expand the wing");
+                            Serial.println("NOT READY for expand the wing");
                         }
                         break;
                     }
 
-                    // TODO : optimize
                     case TEST_WINGTIMER:
                     {
+                        int64_t starttime;
+                        if(g_loop0counter < 10){
+                            Serial.println("[TEST] Start Verify the wing expansion (TIMER) [TEST]");
+                            starttime = esp_timer_get_time();
+                        }
+                        Serial.println("ENTRY : TEST_WINGTIMER");
                         //Mostly wingalt's copy (except for timer condition)
                         //Activate the timer at the same time as the launch judgment
-                        int counter_wingalt = 0;
+                        int counter_wingtimer = 0;
                         int validation = 5;
+                        float altitude;
 
                         int64_t entrytime = esp_timer_get_time();
-                        if(entrytime > 5000000 && entrytime < 10000000){
+                        int64_t elapsedtime = entrytime - starttime;
+                        Serial.print("elapsed time is ");
+                        Serial.printf("%"PRId64"\n",elapsedtime);
+                        if(elapsedtime < 10000000){
+                            Serial.print("g_loop0counter is ");
                             Serial.println(g_loop0counter);
-                            if(g_loop0counter == 1) Serial.println("[TEST] Start Verify the wing expansion (ALT) [TEST]");
-                            while(g_wingcounter < 5){
-                            g_wingheight[g_wingcounter] = bmp.readAltitude(1013.25);
-                            g_wingcounter++;
+
+                            for(int i = (validation - 1); i > 0; i--) g_wingheight[i] = g_wingheight[i-1];
+
+                            BaseType_t xStatus = xQueueReceive(queue_altitude, &altitude, 0);
+                            if(xStatus == pdTRUE){
+                                Serial.println("SUCCESS : receive TEST_WINGTIMER");
+                            }else{
+                                Serial.println("FAILED : receive TEST_WINGTIMER");
+                                continue;
                             }
 
-                            for(int i = (validation-1); i>0 ; i--) g_wingheight[i] = g_wingheight[i-1];
-                            g_wingheight[0] = bmp.readAltitude(1013.25);
+                            if(g_wingcounter < 5){
+                                g_wingheight[g_wingcounter] = altitude;
+                                g_wingcounter++;
+                                continue;
+                            }else{
+                                g_wingheight[0] = altitude;
+                            }
 
                             g_wingnewaverage = 0.0;
-                            for(int i = 0; i < validation; i++) g_wingnewaverage += g_wingheight[i]; //sum
-                            g_wingnewaverage = g_wingnewaverage/float(validation);        
+                            for(int i = 0; i < validation; i++) g_wingnewaverage += g_wingheight[i];
+                            g_wingnewaverage = g_wingnewaverage / float(validation);
+                            Serial.print("Average is ");      
                             Serial.println(g_wingnewaverage);          
 
                             if(g_wingnewaverage < g_wingoldaverage){
-                                if((g_loop0counter - g_wingcounter) == 1){
-                                    counter_wingalt++;
+                                if((g_loop0counter - g_wingcounter) == 1){ //Continuous judgment
+                                    counter_wingtimer++;
                                 }
                                 g_wingcounter = g_loop0counter;
                             }
                             g_wingoldaverage = g_wingnewaverage;
 
-                            if(counter_wingalt >= 5){
+                            if(counter_wingtimer >= 5){
                                 Serial.println("Ready for expand the wing");
                                 successflag_timer = true;
                             }else{
                                 Serial.println("NOT Ready for expand the wing");
-                                successflag_timer = false;
                             }
+
                             break;
-                        }else if(!successflag_timer && entrytime >= 10000000){
+
+                        }else if(!successflag_timer && elapsedtime >= 10000000){
                             Serial.println("FORCE expand the wing");
                             break;
                         }
@@ -443,14 +479,12 @@ void loop0 (void* pvParameters){
         //Serial.print("g_oldcommand: ");
         //Serial.println(g_oldcommand);
 
-        g_loop0counter++;
-
         TickType_t endtick = xTaskGetTickCount();
         TickType_t executiontick = endtick - starttick;
         Serial.print("Execution tick (LOOP0) is ");
         Serial.println(executiontick);
 
-        vTaskDelay(10); //Need to be adjusted
+        vTaskDelay(30); //Need to be adjusted
     }
 }
 
@@ -465,10 +499,7 @@ void loop1 (void* pvParameters){
 
         // get sensor value
         // from BMP280
-        g_Temperature = bmp.readTemperature();
-        g_Pressure = bmp.readPressure();
-        g_Altitude = bmp.readAltitude(1013.25);
-        // from MPU6050
+        float altitude = bmp.readAltitude(1013.25);
 
         // if programming failed, don't try to do anything
         if (!dmpReady){
@@ -513,16 +544,16 @@ void loop1 (void* pvParameters){
 
             BaseType_t xStatus_magnitude = xQueueSend(queue_magnitude, &magnitude, 0);
             if(xStatus_magnitude == pdTRUE){
-                Serial.println("SUCCESS: MAGNITUDE");
+                Serial.println("SUCCESS: send MAGNITUDE");
             }else{
-                Serial.println("FAILED: MAGNITUDE");
+                Serial.println("FAILED: send MAGNITUDE");
             }
 
-            BaseType_t xStatus_height = xQueueSend(queue_height, &g_Altitude, 0);
+            BaseType_t xStatus_height = xQueueSend(queue_altitude, &altitude, 0);
             if(xStatus_height == pdTRUE){
-                Serial.println("SUCCESS: HEIGHT");
+                Serial.println("SUCCESS: send HEIGHT");
             }else{
-                Serial.println("FAILED: HEIGHT");
+                Serial.println("FAILED: send HEIGHT");
             }
 
         }
