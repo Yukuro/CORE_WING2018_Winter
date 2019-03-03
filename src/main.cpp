@@ -83,7 +83,7 @@ void dmpDataReady();
 systemPhase phaseDecide(char g_command, systemPhase oldPhase);
 systemTest testDecide(char testcommand, systemTest oldTest);
 bool launchDecide(int magnitudecriterion, int countercriterion);
-bool wingaltDecide(int countercriterion, int validation);
+bool wingaltDecide(int countercriterion);
 
 void loop0(void* pvParameters);
 void loop1(void* pvParameters);
@@ -237,19 +237,19 @@ void loop0 (void* pvParameters){
                     case TEST_LAUNCH:
                     {
                         if(launchDecide(25000,5)){
-                            Serial.println("READY for launch");
+                            Serial.println("[TEST] READY for launch [TEST]");
                         }else{
-                            Serial.println("NOT READY for launch");
+                            Serial.println("[TEST] NOT READY for launch [TEST]");
                         }
                         break;
                     }
 
                     case TEST_WINGALT:
                     {
-                        if(wingaltDecide(5,5)){
-                            Serial.println("READY for expand the wing");
+                        if(wingaltDecide(5)){
+                            Serial.println("[TEST] READY for expand the wing [TEST]");
                         }else{
-                            Serial.println("NOT READY for expand the wing");
+                            Serial.println("[TEST] NOT READY for expand the wing [TEST]");
                         }
                         break;
                     }
@@ -263,8 +263,7 @@ void loop0 (void* pvParameters){
                         Serial.println("ENTRY : TEST_WINGTIMER");
                         //Mostly wingalt's copy (except for timer condition)
                         //Activate the timer at the same time as the launch judgment
-                        int counter_wingtimer = 0;
-                        int validation = 5;
+                        int counter_wingtimer = 0;;
                         float altitude;
 
                         int64_t entrytime = esp_timer_get_time();
@@ -272,17 +271,17 @@ void loop0 (void* pvParameters){
                         Serial.print("elapsed time is ");
                         Serial.printf("%"PRId64"\n",elapsedtime);
                         if(elapsedtime < 10000000){
-                            if(wingaltDecide(5,5)){
-                                Serial.println("Ready for expand the wing");
+                            if(wingaltDecide(5)){
+                                Serial.println("[TEST] Ready for expand the wing [TEST]");
                                 successflag_timer = true;
                             }else{
-                                Serial.println("NOT Ready for expand the wing");
+                                Serial.println("[TEST] NOT Ready for expand the wing [TEST]");
                             }
 
                             break;
 
                         }else if(!successflag_timer && elapsedtime >= 10000000){
-                            Serial.println("FORCE expand the wing");
+                            Serial.println("[TEST] FORCE : expand the wing [TEST]");
                             break;
                         }
                     }
@@ -312,34 +311,8 @@ void loop0 (void* pvParameters){
 
             case PHASE_LAUNCH: //launch determination
             {
-                int counter_launch = 0;
-                //Serial.println("[FLIGHT] START : PHASE_LAUNCH [FLIGHT]");
-                Serial.println(g_loop0counter);
-
-                float magnitude = 0.0;
-                BaseType_t xStatus = xQueueReceive(queue_magnitude, &magnitude, 0);
-                if(xStatus == pdTRUE){
-                    Serial.println("SUCCESS : received TEST_LAUNCH");
-                }else{
-                    Serial.println("FAILED : received TEST_LAUNCH");
-                    break;
-                }
-                //Serial.println(xStatus);
-                Serial.print("magnitude is ");
-                Serial.println(magnitude);
-
-                if(g_loop0counter >= 5000 && magnitude > 30000){
-                    if((g_loop0counter - g_launchcounter) == 1){ //Continuous judgment
-                        counter_launch++;
-                    }
-                    g_launchcounter = g_loop0counter;
-                }
-
-                if(counter_launch >= 10){
+                if(launchDecide(30000,10)){
                     Serial.println("[FLIGHT] READY for launch [FLIGHT]");
-                    g_Phase = PHASE_RISE;
-                    starttime = esp_timer_get_time();
-                    phaselock = true; // Transit to phase automatic transition.
                 }else{
                     Serial.println("[FLIGHT] NOT READY for launch [FLIGHT]");
                 }
@@ -350,7 +323,19 @@ void loop0 (void* pvParameters){
             {
                 int64_t entrytime = esp_timer_get_time();
                 int64_t elapsedtime = entrytime - starttime;
-                if(elapsedtime >= 7000)
+                if(elapsedtime >= 7000 && elapsedtime < 16000){
+                    if(wingaltDecide(5)){
+                        Serial.println("[FLIGHT] Ready for expand the wing [FLIGHT]");
+                        g_Phase = PHASE_GLIDE;
+                        successflag_timer = true;
+                    }else{
+                        Serial.println("[FLIGHT] NOT Ready for expand the wing [FLIGHT]");
+                    }
+                }else if(elapsedtime >= 16000){
+                        Serial.println("[FLIGHT] FORCE : expand the wing [FLIGHT]");
+                        g_Phase = PHASE_GLIDE;
+                        successflag_timer = true;
+                }
                 break;
             }
 
@@ -392,12 +377,15 @@ void loop0 (void* pvParameters){
             //Serial.print(g_command);
             //Serial.print(" received.");
 
+            /*
             //In test mode the first letter is the same
             if(g_command == 't' || g_command != g_oldcommand){
                 g_Phase = phaseDecide(g_command, g_Phase);
             }else{
-                g_Phase = PHASE_STAND;
+                //g_Phase = PHASE_STAND;
             }
+            */
+            g_Phase = phaseDecide(g_command, g_Phase);
             g_oldcommand = g_command;
         }
 
@@ -555,9 +543,10 @@ bool launchDecide(int magnitudecriterion, int countercriterion){
     }
 }
 
-bool wingaltDecide(int countercriterion, int validation){
+bool wingaltDecide(int countercriterion){
     //Serial.println("ENTRY : WINGALTDECIDE");
     int counter_wingalt = 0;
+    int validation = 5;
     float altitude;
 
     Serial.println(g_loop0counter);
@@ -599,9 +588,3 @@ bool wingaltDecide(int countercriterion, int validation){
         return false;
     }
 }
-
-/*
-void sendEmergency(){
-    // TODO: implement send EMG data to MKRWAN1300 
-}
-*/
