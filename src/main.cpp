@@ -5,12 +5,11 @@
 #include <Adafruit_BMP280.h>
 #include <Arduino.h>
 
-#define OUTPUT_READABLE_YAWPITCHROLL
-#define INTERRUPT_PIN 4  //for mpu6050
+#define INTERRUPT_PIN 4  //mpu6050の割り込みピン
 
-Adafruit_BMP280 bmp; // I2C
+Adafruit_BMP280 bmp;
 MPU6050 mpu;
-TaskHandle_t th[2]; // Event Handle
+TaskHandle_t th[2];
 HardwareSerial COMM(1);
 HardwareSerial GPS(2);
 
@@ -21,42 +20,38 @@ uint16_t packetSize;    // expected DMP packet size (default is 42 bytes)
 uint16_t fifoCount;     // count of all bytes currently in FIFO
 uint8_t fifoBuffer[64]; // FIFO storage buffer
 
-Quaternion q;           // [w, x, y, z]         quaternion container
-VectorInt16 aa;         // [x, y, z]            accel sensor measurements
-VectorInt16 aaReal;     // [x, y, z]            gravity-free accel sensor measurements
-VectorInt16 aaWorld;    // [x, y, z]            world-frame accel sensor measurements
-VectorFloat gravity;    // [x, y, z]            gravity vector
-float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
+VectorInt16 aa;         // 加速度格納用
 
 String g_receivedcommand = "";
 char g_command ='/';
 char g_testcommand = '/';
 char g_oldcommand = '/'; // for debug
 
-//Global variables of the loop0
+//ループカウンタ(loop0)
 int g_loop0counter = 1;
 
-//Global variables of the launch test in test mode
+//ループカウンタ(TEST_LAUNCH)
 int g_launchcounter = 0;
 
-//Global variables of the wingalt test in test mode
+//ループカウンタ(TEST_WINGALT,TEST_WINGTIMER)
 int g_wingcounter = 0;
+
+//移動平均算出用
 float g_wingheight[5];
 float g_wingnewaverage = -100.0;
 float g_wingoldaverage = -100.0;
 
-//for the wingXXX test
 bool successflag_timer = false;
-bool phaselock = false;
 
-int16_t g_ax, g_ay, g_az;
-int16_t g_gx, g_gy, g_gz;
+//コマンド間違い防止のためにフェーズをロックする
+bool phaselock = false;
 
 QueueHandle_t queue_magnitude;
 QueueHandle_t queue_altitude;
 
 int counter = 0;
 
+// フェーズ定義
 enum systemPhase{
     PHASE_WAIT,
     PHASE_TEST,
@@ -69,6 +64,7 @@ enum systemPhase{
     PHASE_STAND
 } g_Phase;
 
+// テストモード定義
 enum systemTest{
     TEST_FLIGHTMODE,
     TEST_LAUNCH,
@@ -89,12 +85,12 @@ void loop0(void* pvParameters);
 void loop1(void* pvParameters);
 
 void setup() {
-    //initialize both Serial ports
+    //UART0~2の設定
     Serial.begin(115200);
     COMM.begin(115200, SERIAL_8N1, 18,19);
     GPS.begin(115200);
 
-    //initialize MPU6050
+    //MPU6050の初期化
     #if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
         Wire.begin();
         Wire.setClock(400000L); // 400kHz I2C clock. Comment this line if having compilation difficulties
@@ -102,7 +98,7 @@ void setup() {
         Fastwire::setup(400, true);
     #endif
 
-    // initialize device
+    // MPU6050の追加設定
     Serial.println(F("Initializing I2C devices..."));
     mpu.initialize();
     mpu.setRate(9); //set sampling rate 100Hz
@@ -110,71 +106,70 @@ void setup() {
     mpu.setFullScaleGyroRange(MPU6050_GYRO_FS_1000); // ser gyro range 1000 deg/sec(dps)
     pinMode(INTERRUPT_PIN, INPUT);
 
-    // verify connection
+    // MPU6050接続確認
     Serial.println(F("Testing device connections..."));
     Serial.println(mpu.testConnection() ? F("MPU6050 connection successful") : F("MPU6050 connection failed"));
 
-    // wait for ready
+    // 開始まで待機
     Serial.println(F("\nSend any character to begin DMP: "));
     while (Serial.available() && Serial.read()); // empty buffer
     while (!Serial.available());                 // wait for data
     while (Serial.available() && Serial.read()); // empty buffer again
 
-    // load and configure the DMP
+    // DMPの初期化
     Serial.println(F("Initializing DMP..."));
     devStatus = mpu.dmpInitialize();
 
-    // supply your own gyro offsets here, scaled for min sensitivity
+    // MPU6050の各軸にオフセットを与える
     mpu.setXGyroOffset(220);
     mpu.setYGyroOffset(76);
     mpu.setZGyroOffset(-85);
-    mpu.setZAccelOffset(1788); // 1688 factory default for my test chip
+    mpu.setZAccelOffset(1788); // データシートでは1688
 
     if (devStatus == 0) {
-        // turn on the DMP, now that it's ready
+        // DMP起動
         Serial.println(F("Enabling DMP..."));
         mpu.setDMPEnabled(true);
 
-        // enable Arduino interrupt detection
+        // esp32の割り込み検知を有効にする
         Serial.print(F("Enabling interrupt detection (Arduino external interrupt "));
         Serial.print(digitalPinToInterrupt(INTERRUPT_PIN));
         Serial.println(F(")..."));
         attachInterrupt(digitalPinToInterrupt(INTERRUPT_PIN), dmpDataReady, RISING);
         mpuIntStatus = mpu.getIntStatus();
 
-        // set our DMP Ready flag so the main loop() function knows it's okay to use it
+        // DMPの使用可能の如何を通達
         Serial.println(F("DMP ready! Waiting for first interrupt..."));
         dmpReady = true;
 
-        // get expected DMP packet size for later comparison
+        //  後の処理のためにFIFOのパケットを取得
         packetSize = mpu.dmpGetFIFOPacketSize();
     } else {
-        // ERROR!
-        // 1 = initial memory load failed
-        // 2 = DMP configuration updates failed
-        // (if it's going to break, usually the code will be 1)
+        // code
+        // 1 = 初期メモリロード失敗
+        // 2 = DMP設定のアップデート失敗
+        // (センサが壊れてたら大抵は1)
         Serial.print(F("DMP Initialization failed (code "));
         Serial.print(devStatus);
         Serial.println(F(")"));
     }
 
-    //Serial.printlnSerial.println(F("BMP280 test"));
     if (!bmp.begin()) {
     Serial.println(F("Could not find a valid BMP280 sensor, check wiring!"));
     while (1);
     }
 
-    /* Default settings from datasheet. */
-    bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,     /* Operating Mode. */
-                    Adafruit_BMP280::SAMPLING_X2,     /* Temp. oversampling */
-                    Adafruit_BMP280::SAMPLING_X16,    /* Pressure oversampling */
-                    Adafruit_BMP280::FILTER_X16,      /* Filtering. */
-                    Adafruit_BMP280::STANDBY_MS_500); /* Standby time. */
+    /* データシートでのデフォルトを設定 */
+    bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,     /* 実行モード */
+                    Adafruit_BMP280::SAMPLING_X2,     /* 温度をオーバーサンプリング */
+                    Adafruit_BMP280::SAMPLING_X16,    /* 圧力をオーバーサンプリング */
+                    Adafruit_BMP280::FILTER_X16,      /* フィルター */
+                    Adafruit_BMP280::STANDBY_MS_500); /* 待機時間の設定 */
 
-    //initialize the g_Phase state
+    // フェーズを初期化
     g_Phase = PHASE_WAIT;
 
-    // create a queue for inter-core data sharing
+    // コア間データ共有用のキューを設定
     queue_magnitude = xQueueCreate(512, sizeof(float));
     if(queue_magnitude == NULL){
         Serial.println("can NOT create QUEUE_MAGNITUDE");
@@ -184,18 +179,19 @@ void setup() {
         Serial.println("can NOT create QUEUE_HEIGHT");
     }
 
-    // initial setting of light sleep
+    // light sleepの初期化
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_AUTO);
     gpio_pullup_en(GPIO_NUM_33);
     gpio_pulldown_dis(GPIO_NUM_33);
     esp_sleep_enable_ext0_wakeup(GPIO_NUM_33, 0);
 
+    // デュアルコアの設定
     xTaskCreatePinnedToCore(loop0, "Loop0", 8192, NULL, 2, &th[0], 0); // loop0 manipulate g_Phase dicision
     vTaskDelay(500);
     xTaskCreatePinnedToCore(loop1, "Loop1", 8192, NULL, 2, &th[1], 1); // loop1 manipulate sensor processing
 }
 
-/*  loop0 manipulate g_Phase dicision  */
+/*  loop0はフェーズ判定を主に行う  */
 void loop0 (void* pvParameters){
     int64_t starttime;
     while(1){
@@ -204,6 +200,7 @@ void loop0 (void* pvParameters){
         //Serial.println("loop0 is working");
         switch (g_Phase)
         {
+            // 待機(light sleep)
             case PHASE_WAIT:
             {
                 Serial.println("After 5 seconds enter light sleep mode");
@@ -213,6 +210,7 @@ void loop0 (void* pvParameters){
                 break;
             }
 
+            // テストフェーズ
             case PHASE_TEST:
             {
                 //Serial.println("Enter TEST Sequence");
@@ -228,12 +226,14 @@ void loop0 (void* pvParameters){
 
                 switch(g_Test)
                 {
+                    // フライトモード移行条件の検証
                     case TEST_FLIGHTMODE:
                     {   
                         Serial.println("[TEST] Entry LAUNCH sequence [TEST]");
                         break;
                     }
 
+                    // 離床検知条件の検証
                     case TEST_LAUNCH:
                     {
                         if(launchDecide(25000,5)){
@@ -244,6 +244,7 @@ void loop0 (void* pvParameters){
                         break;
                     }
 
+                    // 翼展開機構動作指令条件の検証(高度)
                     case TEST_WINGALT:
                     {
                         if(wingaltDecide(5)){
@@ -254,6 +255,7 @@ void loop0 (void* pvParameters){
                         break;
                     }
 
+                    // 翼展開機構動作指令条件の検証(タイマー)
                     case TEST_WINGTIMER:
                     {
                         if(g_loop0counter < 10){
@@ -261,15 +263,11 @@ void loop0 (void* pvParameters){
                             starttime = esp_timer_get_time();
                         }
                         Serial.println("ENTRY : TEST_WINGTIMER");
-                        //Mostly wingalt's copy (except for timer condition)
-                        //Activate the timer at the same time as the launch judgment
-                        int counter_wingtimer = 0;;
-                        float altitude;
 
                         int64_t entrytime = esp_timer_get_time();
                         int64_t elapsedtime = entrytime - starttime;
                         Serial.print("elapsed time is ");
-                        Serial.printf("%"PRId64"\n",elapsedtime);
+                        Serial.printf("% "PRId64" \n",elapsedtime);
                         if(elapsedtime < 10000000){
                             if(wingaltDecide(5)){
                                 Serial.println("[TEST] Ready for expand the wing [TEST]");
@@ -286,7 +284,7 @@ void loop0 (void* pvParameters){
                         }
                     }
 
-
+                    // 何もしない
                     case TEST_STAND:
                     {
                         Serial.println("TEST_STAND");
@@ -309,16 +307,19 @@ void loop0 (void* pvParameters){
                 break;
             }
 
-            case PHASE_LAUNCH: //launch determination
+            // 発射判定
+            case PHASE_LAUNCH:
             {
                 if(launchDecide(30000,10)){
                     Serial.println("[FLIGHT] READY for launch [FLIGHT]");
+                    starttime = esp_timer_get_time();
                 }else{
                     Serial.println("[FLIGHT] NOT READY for launch [FLIGHT]");
                 }
                 break;   
             }
 
+            // 離床検知
             case PHASE_RISE:
             {
                 int64_t entrytime = esp_timer_get_time();
@@ -368,23 +369,13 @@ void loop0 (void* pvParameters){
             }
         }
 
-        // wait for g_command
+        // コマンドを待つ
         if(!phaselock && COMM.available() > 0){
             g_receivedcommand = COMM.readStringUntil('\n');
             //Serial.print(g_receivedcommand);
             //Serial.println(" g_receivedcommand received.");
             g_command = g_receivedcommand[0];
-            //Serial.print(g_command);
-            //Serial.print(" received.");
 
-            /*
-            //In test mode the first letter is the same
-            if(g_command == 't' || g_command != g_oldcommand){
-                g_Phase = phaseDecide(g_command, g_Phase);
-            }else{
-                //g_Phase = PHASE_STAND;
-            }
-            */
             g_Phase = phaseDecide(g_command, g_Phase);
             g_oldcommand = g_command;
         }
@@ -405,57 +396,56 @@ void loop0 (void* pvParameters){
 /*  loop1 manipulate sensor processing  */
 void loop1 (void* pvParameters){
     while(1){
+        // ティック数計測
         TickType_t starttick = xTaskGetTickCount(); 
-        //int64_t starttime = esp_timer_get_time();
         Serial.print("fifoCount at first are ");
         Serial.printf("%"PRId16"\n",fifoCount);
-        Serial.println("loop1 is working");
 
-        // get sensor value
-        // from BMP280
         float altitude = bmp.readAltitude(1013.25);
 
-        // if programming failed, don't try to do anything
+        // MPU6050が使用不能の時、エマスト発動
         if (!dmpReady){
             Serial.println("!!! EMERGENCY EMERGENCY EMERGENCY !!!");
             g_Phase = PHASE_EMERGENCY;
         }
 
-        // wait for MPU interrupt or extra packet(s) available
+        // MPU6050の割り込みを待つ and FIFOに余裕があるかを確認
         while (!mpuInterrupt && fifoCount < packetSize) {
             if (mpuInterrupt && fifoCount < packetSize) {
-            // try to get out of the infinite loop 
+            // 無限ループからの脱出を試みる
             fifoCount = mpu.getFIFOCount();
             }  
         }
 
-        // reset interrupt flag and get INT_STATUS byte
+        // 割り込みフラッグをリセットして、INT_STATUS バイトを取得する
         mpuInterrupt = false;
         mpuIntStatus = mpu.getIntStatus();
 
-        // get current FIFO count
+        // 現在のFIFOカウントを確認
         fifoCount = mpu.getFIFOCount();
 
-        // check for overflow (this should never happen unless our code is too inefficient)
+        // オーバーフローをチェック(while中にvTaskDelay等の遅れが大きすぎると発生する)
         if ((mpuIntStatus & _BV(MPU6050_INTERRUPT_FIFO_OFLOW_BIT)) || fifoCount >= 1024) {
-            // reset so we can continue cleanly
+            // 計測を続けるためにFIFOをリセットする
             mpu.resetFIFO();
             fifoCount = mpu.getFIFOCount();
             Serial.println(F("FIFO overflow!"));
         } else if (mpuIntStatus & _BV(MPU6050_INTERRUPT_DMP_INT_BIT)) {
-            // wait for correct available data length, should be a VERY short wait
+            // 利用可能なデータ長を取得(これは非常に短い時間で行われる)
             while (fifoCount < packetSize) fifoCount = mpu.getFIFOCount();
 
-            // read a packet from FIFO
+            // FIFOからパケットを読み込む
             mpu.getFIFOBytes(fifoBuffer, packetSize);
             
-            // track FIFO count here in case there is > 1 packet available
-            // (this lets us immediately read more without waiting for an interrupt)
+            // 利用可能なパケットが1つ以上ある場合は、FIFOのカウントに数える
+            // (これにより、割り込みを待たずにすぐに詳細を読むことができる)
             fifoCount -= packetSize;
 
+            // 加速度ベクトルの大きさを取得
             mpu.dmpGetAccel(&aa, fifoBuffer);
             float magnitude = aa.getMagnitude();
-
+            
+            // 取得したデータをキューに送信
             BaseType_t xStatus_magnitude = xQueueSend(queue_magnitude, &magnitude, 0);
             if(xStatus_magnitude == pdTRUE){
                 Serial.println("SUCCESS: send MAGNITUDE");
@@ -492,7 +482,6 @@ void dmpDataReady() {
 }
 
 systemPhase phaseDecide(char g_command, systemPhase oldPhase){
-    systemPhase newPhase = PHASE_STAND;
     if(g_command == 'w') return PHASE_WAIT;
     if(g_command == 't') return PHASE_TEST;
     if(g_command == 'c') return PHASE_CONFIG;
@@ -505,7 +494,6 @@ systemPhase phaseDecide(char g_command, systemPhase oldPhase){
 }
 
 systemTest testDecide(char testcommand, systemTest oldTest){
-    systemTest newTest = TEST_STAND;
     if(testcommand == '0') return TEST_FLIGHTMODE;
     if(testcommand == '1') return TEST_LAUNCH;
     if(testcommand == '2') return TEST_WINGALT;
@@ -514,6 +502,10 @@ systemTest testDecide(char testcommand, systemTest oldTest){
 }
 
 bool launchDecide(int magnitudecriterion, int countercriterion){
+    /*
+    magnitudecriterion : 加速度ベクトルの大きさの基準
+    countercriterion : 何回連続したときに判定するか
+    */
     int counter_launch = 0;
     //Serial.println("ENTRY : LAUNCHDECIDE");
     Serial.println(g_loop0counter);
@@ -530,7 +522,7 @@ bool launchDecide(int magnitudecriterion, int countercriterion){
     Serial.println(magnitude);
 
     if(g_loop0counter >= 5000 && magnitude > magnitudecriterion){
-        if((g_loop0counter - g_launchcounter) == 1){ //Continuous judgment
+        if((g_loop0counter - g_launchcounter) == 1){ //連続かどうかの判定
             counter_launch++;
         }
         g_launchcounter = g_loop0counter;
@@ -544,6 +536,9 @@ bool launchDecide(int magnitudecriterion, int countercriterion){
 }
 
 bool wingaltDecide(int countercriterion){
+    /*
+    countercriterion : 何回連続したときに判定するか
+    */
     //Serial.println("ENTRY : WINGALTDECIDE");
     int counter_wingalt = 0;
     int validation = 5;
@@ -561,13 +556,14 @@ bool wingaltDecide(int countercriterion){
         
     }
 
-    if(g_wingcounter < 5){
+    if(g_wingcounter < 5){ // 最初の5回分を埋める
         g_wingheight[g_wingcounter] = altitude;
         g_wingcounter++;
     }else{
         g_wingheight[0] = altitude;
     }
 
+    // 移動平均を算出
     g_wingnewaverage = 0.0;
     for(int i = 0; i < validation; i++) g_wingnewaverage += g_wingheight[i];
     g_wingnewaverage = g_wingnewaverage / float(validation);
@@ -575,7 +571,7 @@ bool wingaltDecide(int countercriterion){
     Serial.println(g_wingnewaverage);          
 
     if(g_wingnewaverage < g_wingoldaverage){
-        if((g_loop0counter - g_wingcounter) == 1){ //Continuous judgment
+        if((g_loop0counter - g_wingcounter) == 1){ // 連続かどうかの判定
             counter_wingalt++;
         }
         g_wingcounter = g_loop0counter;
