@@ -3,12 +3,15 @@
 #include <Wire.h>
 #include <SPI.h>
 #include <Adafruit_BMP280.h>
+#include <TinyGPS++.h>
 #include <Arduino.h>
 
 #define INTERRUPT_PIN 4  //mpu6050の割り込みピン
 
 Adafruit_BMP280 bmp;
 MPU6050 mpu;
+TinyGPSPlus gps;
+
 TaskHandle_t th[2];
 HardwareSerial COMM(1);
 HardwareSerial GPS(2);
@@ -48,6 +51,8 @@ bool phaselock = false;
 
 QueueHandle_t queue_magnitude;
 QueueHandle_t queue_altitude;
+QueueHandle_t queue_latitude;
+QueueHandle_t queue_longitude;
 
 int counter = 0;
 
@@ -185,6 +190,14 @@ void setup() {
     queue_altitude = xQueueCreate(512, sizeof(float));
     if(queue_altitude == NULL){
         Serial.println("can NOT create QUEUE_HEIGHT");
+    }
+    queue_latitude = xQueueCreate(512, sizeof(float));
+    if(queue_latitude == NULL){
+        Serial.println("can NOT create QUEUE_LATITUDE");
+    }
+    queue_longitude = xQueueCreate(512, sizeof(float));
+    if(queue_longitude == NULL){
+        Serial.println("can NOT create QUEUE_LONGITUDE");
     }
 
     // PWMサーボの設定
@@ -421,7 +434,19 @@ void loop1 (void* pvParameters){
         Serial.print("fifoCount at first are ");
         Serial.printf("%"PRId16"\n",fifoCount);
 
+        // 高度を取得
         float altitude = bmp.readAltitude(1013.25);
+
+        // 緯度、経度を取得
+        float latitude, longitude;
+        if(GPS.available() > 0){
+            char gpsdata = GPS.read();
+            gps.encode(gpsdata);
+            if(gps.location.isUpdated()){
+                latitude = gps.location.lat();
+                longitude = gps.location.lng();
+            }
+        }
 
         // MPU6050が使用不能の時、エマスト発動
         if (!dmpReady){
@@ -478,6 +503,20 @@ void loop1 (void* pvParameters){
                 Serial.println("SUCCESS: send HEIGHT");
             }else{
                 Serial.println("FAILED: send HEIGHT");
+            }
+
+            BaseType_t xStatus_latitude = xQueueSend(queue_latitude, &latitude, 0);
+            if(xStatus_latitude == pdTRUE){
+                Serial.println("SUCCESS: send LATITUDE");
+            }else{
+                Serial.println("FAILED: send LATITUDE");
+            }
+
+            BaseType_t xStatus_longitude = xQueueSend(queue_longitude, &longitude, 0);
+            if(xStatus_longitude == pdTRUE){
+                Serial.println("SUCCESS: send LONGITUDE");
+            }else{
+                Serial.println("FAILED: send LONGITUDE");
             }
 
         }
