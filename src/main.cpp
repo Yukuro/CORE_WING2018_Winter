@@ -47,6 +47,7 @@ float g_wingoldaverage = -100.0;
 
 //for the wingXXX test
 bool successflag_timer = false;
+bool phaselock = false;
 
 int16_t g_ax, g_ay, g_az;
 int16_t g_gx, g_gy, g_gz;
@@ -81,6 +82,8 @@ volatile bool mpuInterrupt = false;     // indicates whether MPU interrupt pin h
 void dmpDataReady();
 systemPhase phaseDecide(char g_command, systemPhase oldPhase);
 systemTest testDecide(char testcommand, systemTest oldTest);
+bool launchDecide(int magnitudecriterion, int countercriterion);
+bool wingaltDecide(int countercriterion, int validation);
 
 void loop0(void* pvParameters);
 void loop1(void* pvParameters);
@@ -194,6 +197,7 @@ void setup() {
 
 /*  loop0 manipulate g_Phase dicision  */
 void loop0 (void* pvParameters){
+    int64_t starttime;
     while(1){
         g_loop0counter++;
         TickType_t starttick = xTaskGetTickCount();
@@ -226,99 +230,23 @@ void loop0 (void* pvParameters){
                 {
                     case TEST_FLIGHTMODE:
                     {   
-                        g_Phase = PHASE_LAUNCH;
                         Serial.println("[TEST] Entry LAUNCH sequence [TEST]");
                         break;
                     }
 
                     case TEST_LAUNCH:
                     {
-                        int counter_launch = 0;
-                        //Serial.println("[TEST] Start the LAUNCH test [TEST]");
-                        Serial.println(g_loop0counter);
-
-                        float magnitude = 0.0;
-                        BaseType_t xStatus = xQueueReceive(queue_magnitude, &magnitude, 0);
-                        if(xStatus == pdTRUE){
-                            Serial.println("SUCCESS : received TEST_LAUNCH");
+                        if(launchDecide(25000,5)){
+                            Serial.println("READY for launch");
                         }else{
-                            Serial.println("FAILED : received TEST_LAUNCH");
-                            break;
-                        }
-                        //Serial.println(xStatus);
-                        Serial.print("magnitude is ");
-                        Serial.println(magnitude);
-
-                        //Truncate the first 5 thousand times
-                        /*
-                        while(g_loop0counter > 0 && g_loop0counter < 500){
-                            Serial.println("Waiting for the value to stabilize");
-                            g_loop0counter++;
-                            vTaskDelay(100);
-                        }
-                        */
-
-                        if(g_loop0counter >= 5000 && magnitude > 25000){
-                            if((g_loop0counter - g_launchcounter) == 1){ //Continuous judgment
-                                counter_launch++;
-                            }
-                            g_launchcounter = g_loop0counter;
-                        }
-
-                        if(counter_launch >= 5){
-                            Serial.println("[TEST] READY for launch [TEST]");
-                        }else{
-                            Serial.println("[TEST] NOT READY for launch [TEST]");
+                            Serial.println("NOT READY for launch");
                         }
                         break;
-
-                        
                     }
 
                     case TEST_WINGALT:
                     {
-                        Serial.println("ENTRY : TEST_WINGALT");
-                        int counter_wingalt = 0;
-                        int validation = 5;
-                        float altitude;
-
-                        Serial.println(g_loop0counter);
-                        if(g_loop0counter == 1) Serial.println("[TEST] Start Verify the wing expansion (ALT) [TEST]");
-
-                        for(int i = (validation - 1); i > 0; i--) g_wingheight[i] = g_wingheight[i-1];
-
-                        BaseType_t xStatus = xQueueReceive(queue_altitude, &altitude, 0);
-                        //Serial.println(altitude);
-                        if(xStatus == pdTRUE){
-                            Serial.println("SUCCESS : receive TEST_WINGALT");
-                        }else{
-                            Serial.println("FAILED : receive TEST_WINGALT");
-                            continue;
-                        }
-
-                        if(g_wingcounter < 5){
-                            g_wingheight[g_wingcounter] = altitude;
-                            g_wingcounter++;
-                            continue;
-                        }else{
-                            g_wingheight[0] = altitude;
-                        }
-
-                        g_wingnewaverage = 0.0;
-                        for(int i = 0; i < validation; i++) g_wingnewaverage += g_wingheight[i];
-                        g_wingnewaverage = g_wingnewaverage / float(validation);
-                        Serial.print("Average is ");      
-                        Serial.println(g_wingnewaverage);          
-
-                        if(g_wingnewaverage < g_wingoldaverage){
-                            if((g_loop0counter - g_wingcounter) == 1){ //Continuous judgment
-                                counter_wingalt++;
-                            }
-                            g_wingcounter = g_loop0counter;
-                        }
-                        g_wingoldaverage = g_wingnewaverage;
-
-                        if(counter_wingalt >= 5){
+                        if(wingaltDecide(5,5)){
                             Serial.println("READY for expand the wing");
                         }else{
                             Serial.println("NOT READY for expand the wing");
@@ -328,7 +256,6 @@ void loop0 (void* pvParameters){
 
                     case TEST_WINGTIMER:
                     {
-                        int64_t starttime;
                         if(g_loop0counter < 10){
                             Serial.println("[TEST] Start Verify the wing expansion (TIMER) [TEST]");
                             starttime = esp_timer_get_time();
@@ -345,42 +272,7 @@ void loop0 (void* pvParameters){
                         Serial.print("elapsed time is ");
                         Serial.printf("%"PRId64"\n",elapsedtime);
                         if(elapsedtime < 10000000){
-                            Serial.print("g_loop0counter is ");
-                            Serial.println(g_loop0counter);
-
-                            for(int i = (validation - 1); i > 0; i--) g_wingheight[i] = g_wingheight[i-1];
-
-                            BaseType_t xStatus = xQueueReceive(queue_altitude, &altitude, 0);
-                            if(xStatus == pdTRUE){
-                                Serial.println("SUCCESS : receive TEST_WINGTIMER");
-                            }else{
-                                Serial.println("FAILED : receive TEST_WINGTIMER");
-                                continue;
-                            }
-
-                            if(g_wingcounter < 5){
-                                g_wingheight[g_wingcounter] = altitude;
-                                g_wingcounter++;
-                                continue;
-                            }else{
-                                g_wingheight[0] = altitude;
-                            }
-
-                            g_wingnewaverage = 0.0;
-                            for(int i = 0; i < validation; i++) g_wingnewaverage += g_wingheight[i];
-                            g_wingnewaverage = g_wingnewaverage / float(validation);
-                            Serial.print("Average is ");      
-                            Serial.println(g_wingnewaverage);          
-
-                            if(g_wingnewaverage < g_wingoldaverage){
-                                if((g_loop0counter - g_wingcounter) == 1){ //Continuous judgment
-                                    counter_wingtimer++;
-                                }
-                                g_wingcounter = g_loop0counter;
-                            }
-                            g_wingoldaverage = g_wingnewaverage;
-
-                            if(counter_wingtimer >= 5){
+                            if(wingaltDecide(5,5)){
                                 Serial.println("Ready for expand the wing");
                                 successflag_timer = true;
                             }else{
@@ -418,13 +310,47 @@ void loop0 (void* pvParameters){
                 break;
             }
 
-            case PHASE_LAUNCH:
+            case PHASE_LAUNCH: //launch determination
             {
-                break;
+                int counter_launch = 0;
+                //Serial.println("[FLIGHT] START : PHASE_LAUNCH [FLIGHT]");
+                Serial.println(g_loop0counter);
+
+                float magnitude = 0.0;
+                BaseType_t xStatus = xQueueReceive(queue_magnitude, &magnitude, 0);
+                if(xStatus == pdTRUE){
+                    Serial.println("SUCCESS : received TEST_LAUNCH");
+                }else{
+                    Serial.println("FAILED : received TEST_LAUNCH");
+                    break;
+                }
+                //Serial.println(xStatus);
+                Serial.print("magnitude is ");
+                Serial.println(magnitude);
+
+                if(g_loop0counter >= 5000 && magnitude > 30000){
+                    if((g_loop0counter - g_launchcounter) == 1){ //Continuous judgment
+                        counter_launch++;
+                    }
+                    g_launchcounter = g_loop0counter;
+                }
+
+                if(counter_launch >= 10){
+                    Serial.println("[FLIGHT] READY for launch [FLIGHT]");
+                    g_Phase = PHASE_RISE;
+                    starttime = esp_timer_get_time();
+                    phaselock = true; // Transit to phase automatic transition.
+                }else{
+                    Serial.println("[FLIGHT] NOT READY for launch [FLIGHT]");
+                }
+                break;   
             }
 
             case PHASE_RISE:
             {
+                int64_t entrytime = esp_timer_get_time();
+                int64_t elapsedtime = entrytime - starttime;
+                if(elapsedtime >= 7000)
                 break;
             }
 
@@ -458,7 +384,7 @@ void loop0 (void* pvParameters){
         }
 
         // wait for g_command
-        if(COMM.available() > 0){
+        if(!phaselock && COMM.available() > 0){
             g_receivedcommand = COMM.readStringUntil('\n');
             //Serial.print(g_receivedcommand);
             //Serial.println(" g_receivedcommand received.");
@@ -597,6 +523,81 @@ systemTest testDecide(char testcommand, systemTest oldTest){
     if(testcommand == '2') return TEST_WINGALT;
     if(testcommand == '3') return TEST_WINGTIMER;
     return oldTest;
+}
+
+bool launchDecide(int magnitudecriterion, int countercriterion){
+    int counter_launch = 0;
+    //Serial.println("ENTRY : LAUNCHDECIDE");
+    Serial.println(g_loop0counter);
+
+    float magnitude = 0.0;
+    BaseType_t xStatus = xQueueReceive(queue_magnitude, &magnitude, 0);
+    if(xStatus == pdTRUE){
+        Serial.println("SUCCESS : received TEST_LAUNCH");
+    }else{
+        Serial.println("FAILED : received TEST_LAUNCH");
+    }
+    //Serial.println(xStatus);
+    Serial.print("magnitude is ");
+    Serial.println(magnitude);
+
+    if(g_loop0counter >= 5000 && magnitude > magnitudecriterion){
+        if((g_loop0counter - g_launchcounter) == 1){ //Continuous judgment
+            counter_launch++;
+        }
+        g_launchcounter = g_loop0counter;
+    }
+
+    if(counter_launch >= countercriterion){
+        return true;
+    }else{
+        return false;
+    }
+}
+
+bool wingaltDecide(int countercriterion, int validation){
+    //Serial.println("ENTRY : WINGALTDECIDE");
+    int counter_wingalt = 0;
+    float altitude;
+
+    Serial.println(g_loop0counter);
+    for(int i = (validation - 1); i > 0; i--) g_wingheight[i] = g_wingheight[i-1];
+
+    BaseType_t xStatus = xQueueReceive(queue_altitude, &altitude, 0);
+    //Serial.println(altitude);
+    if(xStatus == pdTRUE){
+        Serial.println("SUCCESS : receive TEST_WINGALT");
+    }else{
+        Serial.println("FAILED : receive TEST_WINGALT");
+        
+    }
+
+    if(g_wingcounter < 5){
+        g_wingheight[g_wingcounter] = altitude;
+        g_wingcounter++;
+    }else{
+        g_wingheight[0] = altitude;
+    }
+
+    g_wingnewaverage = 0.0;
+    for(int i = 0; i < validation; i++) g_wingnewaverage += g_wingheight[i];
+    g_wingnewaverage = g_wingnewaverage / float(validation);
+    Serial.print("Average is ");      
+    Serial.println(g_wingnewaverage);          
+
+    if(g_wingnewaverage < g_wingoldaverage){
+        if((g_loop0counter - g_wingcounter) == 1){ //Continuous judgment
+            counter_wingalt++;
+        }
+        g_wingcounter = g_loop0counter;
+    }
+    g_wingoldaverage = g_wingnewaverage;
+
+    if(counter_wingalt >= countercriterion){
+        return true;
+    }else{
+        return false;
+    }
 }
 
 /*
