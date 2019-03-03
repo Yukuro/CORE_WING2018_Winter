@@ -13,12 +13,12 @@ TaskHandle_t th[2];
 HardwareSerial COMM(1);
 HardwareSerial GPS(2);
 
-bool dmpReady = false;  // set true if DMP init was successful
-uint8_t mpuIntStatus;   // holds actual interrupt status byte from MPU
-uint8_t devStatus;      // return status after each device operation (0 = success, !0 = error)
-uint16_t packetSize;    // expected DMP packet size (default is 42 bytes)
-uint16_t fifoCount;     // count of all bytes currently in FIFO
-uint8_t fifoBuffer[64]; // FIFO storage buffer
+bool dmpReady = false;  // DMPの初期化が成功したときにtrueになる
+uint8_t mpuIntStatus;   // MPUからの実際の割り込みステータスバイトを保持する
+uint8_t devStatus;      // それぞれのデバイスの処理後のステータスを返す(0 = 成功, !0 = エラー)
+uint16_t packetSize;    // DMPパケットサイズを格納する(デフォルトでは42バイト)
+uint16_t fifoCount;     // FIFOにある現在のすべてのバイトを格納
+uint8_t fifoBuffer[64]; // FIFO格納バッファ
 
 VectorInt16 aa;         // 加速度格納用
 
@@ -50,6 +50,14 @@ QueueHandle_t queue_magnitude;
 QueueHandle_t queue_altitude;
 
 int counter = 0;
+
+// サーボチャンネル、ピン設定
+const int CHANNEL0 = 0;
+const int CHANNEL1 = 1;
+const int CHANNEL2 = 2;
+const int ROTATESERVO1 = 25;
+const int ROTATESERVO2 = 26;
+const int SERVO1 = 27;
 
 // フェーズ定義
 enum systemPhase{
@@ -178,6 +186,14 @@ void setup() {
     if(queue_altitude == NULL){
         Serial.println("can NOT create QUEUE_HEIGHT");
     }
+
+    // PWMサーボの設定
+    ledcSetup(CHANNEL0, 50, 10);
+    ledcSetup(CHANNEL1, 50, 10);
+    ledcSetup(CHANNEL2, 50, 10);
+    ledcAttachPin(ROTATESERVO1, 0);
+    ledcAttachPin(ROTATESERVO2, 1);
+    ledcAttachPin(SERVO1, 2);
 
     // light sleepの初期化
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_AUTO);
@@ -342,6 +358,10 @@ void loop0 (void* pvParameters){
 
             case PHASE_GLIDE:
             {
+                /*　制御用サーボ動作
+                ledcWrite(CHANNEL0, 1023);
+                ledcWrite(CHANNEL1, 1023);
+                */
                 break;
             }
 
