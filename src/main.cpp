@@ -5,6 +5,7 @@
 #include <Adafruit_BMP280.h>
 #include <TinyGPS++.h>
 #include <Arduino.h>
+#include <math.h>
 
 #define INTERRUPT_PIN 4  //mpu6050の割り込みピン
 
@@ -40,15 +41,32 @@ int g_launchcounter = 0;
 int g_wingcounter = 0;
 
 //移動平均算出用
-float g_wingheight[5];
-float g_wingnewaverage = -100.0;
-float g_wingoldaverage = -100.0;
+double g_wingheight[5];
+double g_wingnewaverage = -100.0;
+double g_wingoldaverage = -100.0;
 
-bool successflag_timer = false;
+//水平方向速度算出用
+double g_oldlatitude = -1.0;
+double g_oldlongitude = -1.0;
+double g_oldaltitude = -1.0;
+int64_t g_oldtime = -1;
 
-//コマンド間違い防止のためにフェーズをロックする
-bool phaselock = false;
+//大島落下海域の高度
+const double g_sealebel = 0.0; // TODO : 現地調整
 
+//目標地点の座標
+const double g_targetlatitude = 34.660161;
+const double g_targetlongitude = 129.456681;
+
+//地球の赤道半径(地球を球体として見た場合)
+const double g_equatorialradius = 6371.01;
+
+/* 各判断用フラッグ */
+bool g_successflag_timer = false; //TEST_WINGTIMER用翼展開フラッグ(成功=true)
+bool g_phaselockflag = false; //フェーズ自動遷移許可用フラッグ(許可=true)
+bool g_emgflag = false; //緊急動作判断用フラッグ(緊急事態=true)
+
+// センサ値格納用キュー
 QueueHandle_t queue_magnitude;
 QueueHandle_t queue_altitude;
 QueueHandle_t queue_latitude;
@@ -183,19 +201,19 @@ void setup() {
     g_Phase = PHASE_WAIT;
 
     // コア間データ共有用のキューを設定
-    queue_magnitude = xQueueCreate(512, sizeof(float));
+    queue_magnitude = xQueueCreate(512, sizeof(double));
     if(queue_magnitude == NULL){
         Serial.println("can NOT create QUEUE_MAGNITUDE");
     }
-    queue_altitude = xQueueCreate(512, sizeof(float));
+    queue_altitude = xQueueCreate(512, sizeof(double));
     if(queue_altitude == NULL){
         Serial.println("can NOT create QUEUE_HEIGHT");
     }
-    queue_latitude = xQueueCreate(512, sizeof(float));
+    queue_latitude = xQueueCreate(512, sizeof(double));
     if(queue_latitude == NULL){
         Serial.println("can NOT create QUEUE_LATITUDE");
     }
-    queue_longitude = xQueueCreate(512, sizeof(float));
+    queue_longitude = xQueueCreate(512, sizeof(double));
     if(queue_longitude == NULL){
         Serial.println("can NOT create QUEUE_LONGITUDE");
     }
@@ -300,14 +318,14 @@ void loop0 (void* pvParameters){
                         if(elapsedtime < 10000000){
                             if(wingaltDecide(5)){
                                 Serial.println("[TEST] Ready for expand the wing [TEST]");
-                                successflag_timer = true;
+                                g_successflag_timer = true;
                             }else{
                                 Serial.println("[TEST] NOT Ready for expand the wing [TEST]");
                             }
 
                             break;
 
-                        }else if(!successflag_timer && elapsedtime >= 10000000){
+                        }else if(!g_successflag_timer && elapsedtime >= 10000000){
                             Serial.println("[TEST] FORCE : expand the wing [TEST]");
                             break;
                         }
@@ -357,25 +375,84 @@ void loop0 (void* pvParameters){
                     if(wingaltDecide(5)){
                         Serial.println("[FLIGHT] Ready for expand the wing [FLIGHT]");
                         g_Phase = PHASE_GLIDE;
-                        successflag_timer = true;
+                        g_successflag_timer = true;
                     }else{
                         Serial.println("[FLIGHT] NOT Ready for expand the wing [FLIGHT]");
                     }
                 }else if(elapsedtime >= 16000){
                         Serial.println("[FLIGHT] FORCE : expand the wing [FLIGHT]");
                         g_Phase = PHASE_GLIDE;
-                        successflag_timer = true;
+                        g_successflag_timer = true;
                 }
                 break;
             }
 
             case PHASE_GLIDE:
             {
+                double nowlatitude = -1.0, nowlongitude = -1.0, nowaltitude = -1.0; //取得緯度、経度、高度
+                double predictlatitude = -1.0, predictlongitude = -1.0; //予測緯度、経度
+                double tinvdelta = -1.0, tfalldelta = -1.0; //計算用一時変数
+                const double convrad = M_PI / 180.0; //ラジアン変換用定数
+                double distance,azimuthangle; //目標地点との距離、方位角
+                int64_t nowtime = esp_timer_get_time(); //現在時刻
+                int64_t arrivaltime; //到着予測時刻
+
+                BaseType_t xStatus_latitude = xQueueReceive(queue_latitude, &nowlatitude, 0);
+                if(xStatus_latitude == pdTRUE){
+                    Serial.println("SUCCESS : received LATITUDE");
+                }else{
+                    Serial.println("FAILED : received LATITUDE");
+                }
+                BaseType_t xStatus_longitude = xQueueReceive(queue_longitude, &nowlongitude, 0);
+                if(xStatus_longitude == pdTRUE){
+                    Serial.println("SUCCESS : received LONGITUDE");
+                }else{
+                    Serial.println("FAILED : received LONGITUDE");
+                }
+                BaseType_t xStatus_altitude = xQueueReceive(queue_altitude, &nowaltitude, 0);
+                if(xStatus_altitude == pdTRUE){
+                    Serial.println("SUCCESS : received ALTITUDE");
+                }else{
+                    Serial.println("FAILED : received ALTITUDE");
+                }
+                
+                tinvdelta = 1 / ((nowtime - g_oldtime) * (nowtime -g_oldtime));
+                tfalldelta = abs((nowaltitude - g_sealebel) / (nowaltitude -g_oldaltitude));
+                //予測到達地点の座標
+                predictlatitude = abs(nowlatitude - g_oldlatitude) * tinvdelta * tfalldelta;
+                predictlongitude = abs(nowlongitude - g_oldlongitude) * tinvdelta * tfalldelta;
+                //目標地点と予測到達地点の距離
+                distance = g_equatorialradius * acos(sin(predictlatitude * convrad) * sin(g_targetlatitude * convrad) + cos(predictlatitude * convrad) * cos(g_targetlatitude * convrad) * cos((predictlongitude - g_targetlongitude) * convrad));
+                //予測進行方向の方位角
+                azimuthangle = 90.0 - atan2(sin((predictlongitude - nowlongitude) * convrad), cos(nowlatitude * convrad) * tan(g_targetlatitude * convrad) - sin(nowlatitude * convrad) * cos((predictlongitude - nowlatitude) * convrad));
+                //到着予測時間の更新
+                arrivaltime = nowtime + (int64_t)tfalldelta;
+
+                Serial.print("RESULT : distance = ");
+                Serial.print(distance);
+                Serial.print(" , azimuthangle = ");
+                Serial.println(azimuthangle);
+
+                //現在時刻が到着予測時刻+-3秒になったら着水と判断する
+                if(arrivaltime > nowtime - 3000 && arrivaltime < nowtime + 3000) g_Phase = PHASE_SPLASHDOWN;
+
+                //エマスト条件
+                if(distance >= 2.0) g_emgflag = true;
+                if((azimuthangle >= 0.0 && azimuthangle <= 30.0) || (azimuthangle >= 270.0 && azimuthangle < 360.0)) g_emgflag = true;
+
+
                 /*　制御用サーボ動作
                 ledcWrite(CHANNEL0, 1023);
+                ledcWrite(CHANNEL0, 0);
                 ledcWrite(CHANNEL1, 1023);
+                ledcWrite(CHANNEL1, 0);
                 */
-                break;
+
+                //各種データ更新
+                g_oldlatitude = nowlatitude;
+                g_oldlongitude = nowlongitude;
+                g_oldaltitude = nowaltitude;
+                g_oldtime = nowtime;
             }
 
             case PHASE_SPLASHDOWN:
@@ -385,8 +462,6 @@ void loop0 (void* pvParameters){
 
             case PHASE_EMERGENCY:
             {
-                Serial.println("EMERGENCY Phase");
-                //sendEmergency();
                 break;
             }
 
@@ -403,7 +478,7 @@ void loop0 (void* pvParameters){
         }
 
         // コマンドを待つ
-        if(!phaselock && COMM.available() > 0){
+        if(!g_phaselockflag && COMM.available() > 0){
             g_receivedcommand = COMM.readStringUntil('\n');
             //Serial.print(g_receivedcommand);
             //Serial.println(" g_receivedcommand received.");
@@ -422,11 +497,11 @@ void loop0 (void* pvParameters){
         Serial.print("Execution tick (LOOP0) is ");
         Serial.println(executiontick);
 
-        vTaskDelay(30); //Need to be adjusted
+        vTaskDelay(30); //調整の必要あり at #1
     }
 }
 
-/*  loop1 manipulate sensor processing  */
+/*  loop1はセンサ系の処理を実行する  */
 void loop1 (void* pvParameters){
     while(1){
         // ティック数計測
@@ -435,10 +510,10 @@ void loop1 (void* pvParameters){
         Serial.printf("%"PRId16"\n",fifoCount);
 
         // 高度を取得
-        float altitude = bmp.readAltitude(1013.25);
+        double altitude = bmp.readAltitude(1013.25);
 
         // 緯度、経度を取得
-        float latitude, longitude;
+        double latitude, longitude;
         if(GPS.available() > 0){
             char gpsdata = GPS.read();
             gps.encode(gpsdata);
@@ -450,8 +525,7 @@ void loop1 (void* pvParameters){
 
         // MPU6050が使用不能の時、エマスト発動
         if (!dmpReady){
-            Serial.println("!!! EMERGENCY EMERGENCY EMERGENCY !!!");
-            g_Phase = PHASE_EMERGENCY;
+            g_emgflag = true;
         }
 
         // MPU6050の割り込みを待つ and FIFOに余裕があるかを確認
@@ -488,7 +562,7 @@ void loop1 (void* pvParameters){
 
             // 加速度ベクトルの大きさを取得
             mpu.dmpGetAccel(&aa, fifoBuffer);
-            float magnitude = aa.getMagnitude();
+            double magnitude = aa.getMagnitude();
             
             // 取得したデータをキューに送信
             BaseType_t xStatus_magnitude = xQueueSend(queue_magnitude, &magnitude, 0);
@@ -528,9 +602,15 @@ void loop1 (void* pvParameters){
 
         Serial.print("fifoCount at end are ");
         Serial.printf("%"PRId16"\n",fifoCount);
-        vTaskDelay(30); //Need to be adjusted
+
+        //エマスト
+        if(g_emgflag == true){
+            Serial.println("[EMG] Emergency situation occurred!!! [EMG]");
+            g_Phase = PHASE_EMERGENCY;
+        }
+
+        vTaskDelay(30); //調整の必要あり at #1
     }
-    
 }
 
 void loop() {
@@ -569,7 +649,7 @@ bool launchDecide(int magnitudecriterion, int countercriterion){
     //Serial.println("ENTRY : LAUNCHDECIDE");
     Serial.println(g_loop0counter);
 
-    float magnitude = 0.0;
+    double magnitude = 0.0;
     BaseType_t xStatus = xQueueReceive(queue_magnitude, &magnitude, 0);
     if(xStatus == pdTRUE){
         Serial.println("SUCCESS : received TEST_LAUNCH");
@@ -601,7 +681,7 @@ bool wingaltDecide(int countercriterion){
     //Serial.println("ENTRY : WINGALTDECIDE");
     int counter_wingalt = 0;
     int validation = 5;
-    float altitude;
+    double altitude;
 
     Serial.println(g_loop0counter);
     for(int i = (validation - 1); i > 0; i--) g_wingheight[i] = g_wingheight[i-1];
@@ -625,7 +705,7 @@ bool wingaltDecide(int countercriterion){
     // 移動平均を算出
     g_wingnewaverage = 0.0;
     for(int i = 0; i < validation; i++) g_wingnewaverage += g_wingheight[i];
-    g_wingnewaverage = g_wingnewaverage / float(validation);
+    g_wingnewaverage = g_wingnewaverage / double(validation);
     Serial.print("Average is ");      
     Serial.println(g_wingnewaverage);          
 
