@@ -42,7 +42,6 @@ int g_wingcounter = 0;
 
 //移動平均算出用
 double g_wingheight[5];
-double g_wingnewaverage = -100.0;
 double g_wingoldaverage = -100.0;
 
 //水平方向速度算出用
@@ -52,7 +51,7 @@ double g_oldaltitude = -1.0;
 int64_t g_oldtime = -1;
 
 //大島落下海域の高度
-const double g_sealebel = 0.0; // TODO : 現地調整
+double g_sealebel = -100000.0; // TODO : 現地調整
 
 //目標地点の座標
 const double g_targetlatitude = 34.660161;
@@ -109,6 +108,7 @@ volatile bool mpuInterrupt = false;     // indicates whether MPU interrupt pin h
 void dmpDataReady();
 systemPhase phaseDecide(char g_command, systemPhase oldPhase);
 systemTest testDecide(char testcommand, systemTest oldTest);
+double calcSma();
 bool launchDecide(int magnitudecriterion, int countercriterion);
 bool wingaltDecide(int countercriterion);
 
@@ -250,10 +250,23 @@ void loop0 (void* pvParameters){
             // 待機(light sleep)
             case PHASE_WAIT:
             {
+                Serial.println("START : PHASE_WAIT");
                 Serial.println("After 5 seconds enter light sleep mode");
                 delay(5000);
                 esp_light_sleep_start();
                 Serial.println("I woke up");
+                g_Phase = PHASE_CONFIG;
+                g_phaselockflag = true; //自動遷移許可
+                break;
+            }
+
+            case PHASE_CONFIG:
+            {
+                Serial.println("START : PHASE_CONFIG");
+                //海面高のキャリブレーション
+                g_sealebel = calcSma();
+                Serial.print("CONFIG : the set value is "); Serial.println(g_sealebel);
+                if(g_sealebel == -100000.0) g_phaselockflag = false; //海面高が更新されていれば自動遷移禁止
                 break;
             }
 
@@ -347,11 +360,6 @@ void loop0 (void* pvParameters){
                 break;
                 }
 
-            }
-
-            case PHASE_CONFIG:
-            {
-                break;
             }
 
             // 発射判定
@@ -457,6 +465,7 @@ void loop0 (void* pvParameters){
 
             case PHASE_SPLASHDOWN:
             {
+                Serial.println("[FLIGHT] SUCCESS : SPLASHDOWN [FLIGHT]");
                 break;
             }
 
@@ -640,6 +649,43 @@ systemTest testDecide(char testcommand, systemTest oldTest){
     return oldTest;
 }
 
+double calcSma(){
+    /*
+    countercriterion : 何回連続したときに判定するか
+    */
+    int validation = 5;
+    double altitude;
+    double wingnewaverage = -100.0;
+
+    Serial.println(g_loop0counter);
+    for(int i = (validation - 1); i > 0; i--) g_wingheight[i] = g_wingheight[i-1];
+
+    BaseType_t xStatus = xQueueReceive(queue_altitude, &altitude, 0);
+    //Serial.println(altitude);
+    if(xStatus == pdTRUE){
+        Serial.println("SUCCESS : receive TEST_WINGALT");
+    }else{
+        Serial.println("FAILED : receive TEST_WINGALT");
+        
+    }
+
+    if(g_wingcounter < 5){ // 最初の5回分を埋める
+        g_wingheight[g_wingcounter] = altitude;
+        g_wingcounter++;
+    }else{
+        g_wingheight[0] = altitude;
+    }
+
+    // 移動平均を算出
+    wingnewaverage = 0.0;
+    for(int i = 0; i < validation; i++) wingnewaverage += g_wingheight[i];
+    wingnewaverage = wingnewaverage / double(validation);
+    Serial.print("Average is ");      
+    Serial.println(wingnewaverage);
+
+    return wingnewaverage;
+}
+
 bool launchDecide(int magnitudecriterion, int countercriterion){
     /*
     magnitudecriterion : 加速度ベクトルの大きさの基準
@@ -675,47 +721,16 @@ bool launchDecide(int magnitudecriterion, int countercriterion){
 }
 
 bool wingaltDecide(int countercriterion){
-    /*
-    countercriterion : 何回連続したときに判定するか
-    */
-    //Serial.println("ENTRY : WINGALTDECIDE");
     int counter_wingalt = 0;
-    int validation = 5;
-    double altitude;
+    double wingnewaverage = calcSma();          
 
-    Serial.println(g_loop0counter);
-    for(int i = (validation - 1); i > 0; i--) g_wingheight[i] = g_wingheight[i-1];
-
-    BaseType_t xStatus = xQueueReceive(queue_altitude, &altitude, 0);
-    //Serial.println(altitude);
-    if(xStatus == pdTRUE){
-        Serial.println("SUCCESS : receive TEST_WINGALT");
-    }else{
-        Serial.println("FAILED : receive TEST_WINGALT");
-        
-    }
-
-    if(g_wingcounter < 5){ // 最初の5回分を埋める
-        g_wingheight[g_wingcounter] = altitude;
-        g_wingcounter++;
-    }else{
-        g_wingheight[0] = altitude;
-    }
-
-    // 移動平均を算出
-    g_wingnewaverage = 0.0;
-    for(int i = 0; i < validation; i++) g_wingnewaverage += g_wingheight[i];
-    g_wingnewaverage = g_wingnewaverage / double(validation);
-    Serial.print("Average is ");      
-    Serial.println(g_wingnewaverage);          
-
-    if(g_wingnewaverage < g_wingoldaverage){
+    if(wingnewaverage < g_wingoldaverage){
         if((g_loop0counter - g_wingcounter) == 1){ // 連続かどうかの判定
             counter_wingalt++;
         }
         g_wingcounter = g_loop0counter;
     }
-    g_wingoldaverage = g_wingnewaverage;
+    g_wingoldaverage = wingnewaverage;
 
     if(counter_wingalt >= countercriterion){
         return true;
