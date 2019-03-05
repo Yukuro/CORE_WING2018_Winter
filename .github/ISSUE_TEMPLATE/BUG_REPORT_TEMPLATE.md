@@ -1,7 +1,7 @@
 ---
 name: 【バグレポート】
-about: （概要）：
-title: ''
+about: バグレポートはこちら
+title: '【バグレポート】： '
 labels: ''
 assignees: ''
 

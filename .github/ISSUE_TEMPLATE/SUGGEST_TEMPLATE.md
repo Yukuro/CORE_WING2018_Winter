@@ -1,7 +1,7 @@
 ---
 name: 【提案】
-about: （概要）：
-title: ''
+about: 提案はこちら
+title: '【提案】：'
 labels: ''
 assignees: ''
 

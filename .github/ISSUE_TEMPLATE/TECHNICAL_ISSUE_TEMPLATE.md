@@ -1,7 +1,7 @@
 ---
 name: 【技術的課題】
-about: （概要）：
-title: ''
+about: 技術的課題はこちら：
+title: '【技術的課題】：'
 labels: ''
 assignees: ''
 
