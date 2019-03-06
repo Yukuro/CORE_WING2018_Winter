@@ -2,7 +2,6 @@
 #include <SPI.h>
 #include <LoRa.h>
 
-//周波数決定
 LoRaClass lora9216e5; //921.6MHz
 LoRaClass lora9218e5; //921.8MHz
 LoRaClass lora9220e5; //922.0MHz
@@ -111,7 +110,7 @@ loraFrequency carrierSense(){
   packetSize = lora9216e5.parsePacket();
     if(packetSize){
       int rssi = lora9216e5.packetRssi(); //RSSIを取得
-      if(rssi <= -80) csallow = true;
+      if(rssi <= -80) csallow = true; //-80dBm以上の出力があった場合には電波の放出を禁止
     }
     entrytime = micros();
   }
