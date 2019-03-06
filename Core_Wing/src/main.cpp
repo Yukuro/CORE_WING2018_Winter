@@ -13,7 +13,7 @@ Adafruit_BMP280 bmp;
 MPU6050 mpu;
 TinyGPSPlus gps;
 
-TaskHandle_t th[2];
+TaskHandle_t th[2]; //マルチタスク用
 HardwareSerial COMM(1);
 HardwareSerial GPS(2);
 
