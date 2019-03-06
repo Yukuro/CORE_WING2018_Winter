@@ -2,6 +2,7 @@
 #include <SPI.h>
 #include <LoRa.h>
 
+//周波数決定
 LoRaClass lora9216e5; //921.6MHz
 LoRaClass lora9218e5; //921.8MHz
 LoRaClass lora9220e5; //922.0MHz
