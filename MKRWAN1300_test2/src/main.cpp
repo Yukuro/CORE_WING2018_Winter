@@ -6,6 +6,8 @@ LoRaClass lora9216e5; //921.6MHz
 LoRaClass lora9218e5; //921.8MHz
 LoRaClass lora9220e5; //922.0MHz
 
+const int DEBUGLED_PIN = 5;
+
 enum loraFrequency{
   LORA9216E5,
   LORA9218E5,
@@ -15,20 +17,27 @@ enum loraFrequency{
 
 bool g_commflag = true; //通信許可判別用フラッグ(許可=true);
 
+void blinkLED(const int LEDPIN, int time);
 loraFrequency carrierSense();
 
 void setup() {
+  Serial.println("[DEBUG] setup start");
+  pinMode(DEBUGLED_PIN,OUTPUT);
+  digitalWrite(DEBUGLED_PIN, LOW);
+  
   Serial.begin(115200);
   Serial.setTimeout(3000);
   while (!Serial);
   if(!lora9216e5.begin(9216E5)){
-    while(1);
+    while(1) blinkLED(DEBUGLED_PIN, 100);
   }
   if(!lora9218e5.begin(9218E5)){
-    while(1);
+    blinkLED(DEBUGLED_PIN, 100);
+    while(1) blinkLED(DEBUGLED_PIN, 100);
   }
   if(!lora9220e5.begin(922E6)){
-    while(1);
+    blinkLED(DEBUGLED_PIN, 100);
+    while(1) blinkLED(DEBUGLED_PIN, 100);
   }
   /* 出力を13dBmに */
   lora9216e5.setTxPower(13);
@@ -37,46 +46,51 @@ void setup() {
 }
 
 void loop() {
+  Serial.println("[DEBUG] loop start");
+
   g_Freq = carrierSense();
-  if(g_Freq != LORASTAND) g_commflag = true; //キャリアセンス失敗時は送信禁止
+  if(g_Freq != LORASTAND) g_commflag = false; //キャリアセンス失敗時は送信禁止
   switch(g_Freq){
     case LORA9216E5:
     {
+      String sendcommand;
+      if(Serial.available() > 0){
+        sendcommand = Serial.readStringUntil('\n');
+        if(sendcommand.indexOf("[DEBUG]") != -1) g_commflag = false;
+      }
       if(g_commflag){
-        String sendcommand;
-        if(Serial.available() > 0){
-          sendcommand = Serial.readStringUntil('\n');
-        }
         lora9216e5.beginPacket();
         lora9216e5.print(sendcommand);
         lora9216e5.print('\n');
         lora9216e5.endPacket();
       }
-        break;
+      break;
     }
     
     case LORA9218E5:
     {
+      String sendcommand;
+      if(Serial.available() > 0){
+        sendcommand = Serial.readStringUntil('\n');
+        if(sendcommand.indexOf("[DEBUG]") != -1) g_commflag = false;
+      }
       if(g_commflag){
-        String sendcommand;
-        if(Serial.available() > 0){
-          sendcommand = Serial.readStringUntil('\n');
-        }
-        lora9218e5.beginPacket();
-        lora9218e5.print(sendcommand);
-        lora9218e5.print('\n');
-        lora9218e5.endPacket();
+      lora9218e5.beginPacket();
+      lora9218e5.print(sendcommand);
+      lora9218e5.print('\n');
+      lora9218e5.endPacket();
       }
       break;
     }
 
     case LORA9220E5:
     {
+      String sendcommand;
+      if(Serial.available() > 0){
+        sendcommand = Serial.readStringUntil('\n');
+        if(sendcommand.indexOf("[DEBUG]") != -1) g_commflag = false;
+      }
       if(g_commflag){
-        String sendcommand;
-        if(Serial.available() > 0){
-          sendcommand = Serial.readStringUntil('\n');
-        }
         lora9220e5.beginPacket();
         lora9220e5.print(sendcommand);
         lora9220e5.print('\n');
@@ -91,6 +105,13 @@ void loop() {
     }
   }
   delay(52);
+}
+
+void blinkLED(const int LEDPIN, int time){
+  digitalWrite(LEDPIN, HIGH);
+  delay(time);
+  digitalWrite(LEDPIN, LOW);
+  delay(time);
 }
 
 loraFrequency carrierSense(){

@@ -29,15 +29,15 @@ void setup() {
   Serial.begin(115200);
   while (!Serial);
   if(!lora9216e5.begin(9216E5)){
-    Serial.println("SETUP : 921.6MHz ...");
+    Serial.println("FAILED: setup 921.6MHz ...");
     while(1);
   }
   if(!lora9218e5.begin(9218E5)){
-    Serial.println("SETUP : 921.8MHz ...");
+    Serial.println("FAILED : setup 921.8MHz ...");
     while(1);
   }
   if(!lora9220e5.begin(922E6)){
-    Serial.println("SETUP : 922.0MHz ...");
+    Serial.println("FAILED : setup 922.0MHz ...");
     while(1);
   }
   /* 出力を13dBmに */
@@ -56,6 +56,8 @@ void setup() {
 
 void loop() {
   String rcvcommand = receiveCommand();
+  Serial.print("Received command is ");
+  Serial.println(rcvcommand);
 
   //エマスト時動作
   if(rcvcommand == "e"){
@@ -70,8 +72,10 @@ void loop() {
   }
 
   //UART1経由でコマンド転送
-  Serial1.print(rcvcommand);
-  Serial1.print('\n');
+  if(g_commflag){
+    Serial1.print(rcvcommand);
+    Serial1.print('\n');
+  }
 }
 
 String receiveCommand(){
