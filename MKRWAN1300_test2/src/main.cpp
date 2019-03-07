@@ -67,7 +67,6 @@ void loop() {
         if(g_commflag){
           lora9216e5.beginPacket();
           lora9216e5.print(sendcommand);
-          lora9216e5.print('\n');
           Serial.println("sended");
           lora9216e5.endPacket();
         }

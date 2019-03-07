@@ -61,6 +61,8 @@ void loop() {
 
   //エマスト時動作
   if(rcvcommand == "e"){
+    Serial.println("[EMG] Emergency situation occurred !!! [EMG]");
+    delay(100);
     //servo1.write();
     //servo2.write();
     while(1); //エマスト時には以後一切のコマンドを禁止(間違い防止)
@@ -76,23 +78,39 @@ void loop() {
     Serial1.print(rcvcommand);
     Serial1.print('\n');
   }
+
+  delay(50);
 }
 
 String receiveCommand(){
   int packetSize;
-  String command;
+  String command = "";
 
   packetSize = lora9216e5.parsePacket();
+  Serial.print("[DEBUG] packetSize is ");
+  Serial.println(packetSize);
   while(lora9216e5.available()){
     if(packetSize){
-      command = String(lora9216e5.read());
+      int tmpcommand;
+      do{
+        tmpcommand = lora9216e5.read();
+        Serial.print("[DEBUG] tmp command is ");
+        Serial.println(tmpcommand);
+        if(tmpcommand != -1) command.concat(char(tmpcommand));
+      }while(tmpcommand != -1);
     }
   }
   packetSize = lora9218e5.parsePacket();
   if(packetSize){
     while(lora9218e5.available()){
       if(packetSize){
-        command = String(lora9218e5.read());
+        int tmpcommand;
+        do{
+          tmpcommand = lora9216e5.read();
+          Serial.print("[DEBUG] tmp command is ");
+          Serial.println(tmpcommand);
+          if(tmpcommand != -1) command.concat(char(tmpcommand));
+        }while(tmpcommand != -1);
       }
     }
   }
@@ -100,7 +118,13 @@ String receiveCommand(){
   if(packetSize){
     while(lora9220e5.available()){
       if(packetSize){
-        command = String(lora9220e5.read());
+      int tmpcommand;
+        do{
+          tmpcommand = lora9216e5.read();
+          Serial.print("[DEBUG] tmp command is ");
+          Serial.println(tmpcommand);
+          if(tmpcommand != -1) command.concat(char(tmpcommand));
+        }while(tmpcommand != -1);
       }
     }
   }
