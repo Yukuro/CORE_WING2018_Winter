@@ -52,7 +52,7 @@ void setup() {
 
   //sleep回復用ピンの設定
   pinMode(WAKEUP_PIN, OUTPUT);
-  digitalWrite(WAKEUP_PIN,HIGH);
+  digitalWrite(WAKEUP_PIN,LOW);
 }
 
 void loop() {
@@ -71,7 +71,7 @@ void loop() {
 
   //sleep復帰
   if(rcvcommand == "x"){
-    digitalWrite(WAKEUP_PIN,LOW);
+    digitalWrite(WAKEUP_PIN,HIGH);
   }
 
   Serial.print("[DEBUG] g_commflag states is ");

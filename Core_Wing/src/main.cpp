@@ -230,7 +230,7 @@ void setup() {
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_AUTO);
     gpio_pullup_en(GPIO_NUM_33);
     gpio_pulldown_dis(GPIO_NUM_33);
-    esp_sleep_enable_ext0_wakeup(GPIO_NUM_33, 0);
+    esp_sleep_enable_ext0_wakeup(GPIO_NUM_33, 1);
 
     // デュアルコアの設定
     xTaskCreatePinnedToCore(loop0, "Loop0", 8192, NULL, 2, &th[0], 0); // loop0 manipulate g_Phase dicision
