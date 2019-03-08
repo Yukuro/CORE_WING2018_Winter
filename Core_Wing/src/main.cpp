@@ -64,6 +64,7 @@ const double g_equatorialradius = 6371.01;
 bool g_successflag_timer = false; //TEST_WINGTIMER用翼展開フラッグ(成功=true)
 bool g_phaselockflag = false; //フェーズ自動遷移許可用フラッグ(許可=true)
 bool g_emgflag = false; //緊急動作判断用フラッグ(緊急事態=true)
+bool g_onceflag = false; //コマンド変化検出用フラッグ(検出=true)
 
 // センサ値格納用キュー
 QueueHandle_t queue_magnitude;
@@ -71,7 +72,6 @@ QueueHandle_t queue_altitude;
 QueueHandle_t queue_latitude;
 QueueHandle_t queue_longitude;
 
-int counter = 0;
 
 // サーボチャンネル、ピン設定
 const int CHANNEL0 = 0;
@@ -322,7 +322,7 @@ void loop0 (void* pvParameters){
                     // 翼展開機構動作指令条件の検証(タイマー)
                     case TEST_WINGTIMER:
                     {
-                        if(g_loop0counter < 10){
+                        if(g_onceflag){
                             Serial.println("[TEST] Start Verify the wing expansion (TIMER) [TEST]");
                             starttime = esp_timer_get_time();
                         }
@@ -500,6 +500,11 @@ void loop0 (void* pvParameters){
             Serial.print(g_receivedcommand);
             Serial.println(" g_receivedcommand received.");
             g_command = g_receivedcommand[0];
+            if(g_command != g_oldcommand){
+                g_onceflag = true;
+            }else{
+                g_onceflag = false;
+            }
 
             g_Phase = phaseDecide(g_command, g_Phase);
             g_oldcommand = g_command;
