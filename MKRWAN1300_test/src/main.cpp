@@ -73,10 +73,13 @@ void loop() {
     digitalWrite(WAKEUP_PIN,LOW);
   }
 
+  Serial.print("[DEBUG] g_commflag states is ");
+  Serial.println(g_commflag);
   //UART1経由でコマンド転送
   if(g_commflag){
-    Serial1.print(rcvcommand);
-    Serial1.print('\n');
+    Serial.println("[DEBUG] : Entry send sequence");
+    Serial1.println(rcvcommand);
+    Serial.println("[DEBUG] : SUCESSFUL send via UART1");
   }
 
   delay(50);
@@ -94,7 +97,6 @@ String receiveCommand(){
       int tmpcommand;
       do{
         tmpcommand = lora9216e5.read();
-        Serial.print("[DEBUG] tmp command is ");
         Serial.println(tmpcommand);
         if(tmpcommand != -1) command.concat(char(tmpcommand));
       }while(tmpcommand != -1);

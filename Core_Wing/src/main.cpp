@@ -267,6 +267,10 @@ void loop0 (void* pvParameters){
                 g_sealebel = calcSma();
                 Serial.print("CONFIG : the set value is "); Serial.println(g_sealebel);
                 if(g_sealebel == -100000.0) g_phaselockflag = false; //海面高が更新されていれば自動遷移禁止
+                Serial.print("[DEBUG] g_sealebel, g_phaselock are ");
+                Serial.print(g_sealebel);
+                Serial.print(" , ");
+                Serial.println(g_phaselockflag);
                 break;
             }
 
@@ -487,10 +491,14 @@ void loop0 (void* pvParameters){
         }
 
         // コマンドを待つ
-        if(!g_phaselockflag && COMM.available() > 0){
+        Serial.print("[DEBUG] COMM.available is ");
+        Serial.println(COMM.available());
+        Serial.println(g_phaselockflag);
+        if(g_phaselockflag && COMM.available() > 0){
             g_receivedcommand = COMM.readStringUntil('\n');
-            //Serial.print(g_receivedcommand);
-            //Serial.println(" g_receivedcommand received.");
+            Serial.print("[DEBUG] ");
+            Serial.print(g_receivedcommand);
+            Serial.println(" g_receivedcommand received.");
             g_command = g_receivedcommand[0];
 
             g_Phase = phaseDecide(g_command, g_Phase);

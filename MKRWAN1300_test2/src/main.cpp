@@ -24,6 +24,8 @@ void setup() {
   Serial.begin(115200);
   Serial.setTimeout(3000);
 
+  Serial1.begin(115200);
+
   pinMode(DEBUGLED_PIN,OUTPUT);
   digitalWrite(DEBUGLED_PIN, LOW);
 
