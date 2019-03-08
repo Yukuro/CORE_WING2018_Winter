@@ -27,6 +27,7 @@ String receiveCommand();
 
 void setup() {
   Serial.begin(115200);
+  Serial1.begin(115200);
   while (!Serial);
   if(!lora9216e5.begin(9216E5)){
     Serial.println("FAILED: setup 921.6MHz ...");
@@ -79,6 +80,7 @@ void loop() {
   if(g_commflag){
     Serial.println("[DEBUG] : Entry send sequence");
     Serial1.println(rcvcommand);
+    Serial1.flush();
     Serial.println("[DEBUG] : SUCESSFUL send via UART1");
   }
 
