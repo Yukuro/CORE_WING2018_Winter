@@ -73,6 +73,5 @@
             "cppStandard": "c++11",
             "compilerPath": "C:/Users/tuple/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-gcc.exe -mthumb -mcpu=cortex-m0plus"
         }
-    ],
-    "version": 4
+    ]
 }
