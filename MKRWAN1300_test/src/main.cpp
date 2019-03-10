@@ -94,7 +94,7 @@ String receiveCommand(){
   packetSize = lora9216e5.parsePacket();
   Serial.print("[DEBUG] packetSize is ");
   Serial.println(packetSize);
-  while(lora9216e5.available()){
+  while(lora9216e5.available() > 0){
     if(packetSize){
       int tmpcommand;
       do{

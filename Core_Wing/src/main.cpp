@@ -33,12 +33,16 @@ char g_oldcommand = '/'; // for debug
 
 //ループカウンタ(loop0)
 int g_loop0counter = 1;
+//ループカウンタ(loop1)
+int g_loop1counter = 1;
 
 //ループカウンタ(TEST_LAUNCH)
 int g_launchcounter = 0;
 
 //ループカウンタ(TEST_WINGALT,TEST_WINGTIMER)
 int g_wingcounter = 0;
+
+int64_t g_starttime; //全体のstarttime
 
 //移動平均算出用
 double g_wingheight[5];
@@ -54,8 +58,8 @@ int64_t g_oldtime = -1;
 double g_sealebel = -100000.0;
 
 //目標地点の座標
-const double g_targetlatitude = 34.660161;
-const double g_targetlongitude = 129.456681;
+const double g_targetlatitude = 35.660466; // TODO 戻す: 34.660161
+const double g_targetlongitude = 139.366300; // TODO 戻す: 129.456681
 
 //地球の赤道半径(地球を球体として見た場合)
 const double g_equatorialradius = 6371.01;
@@ -119,7 +123,7 @@ void setup() {
     //UART0~2の設定
     Serial.begin(115200);
     COMM.begin(115200, SERIAL_8N1, 18,19);
-    GPS.begin(115200);
+    GPS.begin(9600, SERIAL_8N1, 16, 17);
 
     //MPU6050の初期化
     #if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
@@ -232,6 +236,8 @@ void setup() {
     gpio_pulldown_dis(GPIO_NUM_33);
     esp_sleep_enable_ext0_wakeup(GPIO_NUM_33, 1);
 
+    g_starttime = esp_timer_get_time();
+
     // デュアルコアの設定
     xTaskCreatePinnedToCore(loop0, "Loop0", 8192, NULL, 2, &th[0], 0);
     vTaskDelay(500);
@@ -241,6 +247,8 @@ void setup() {
 /*  loop0はフェーズ判定を主に行う  */
 void loop0 (void* pvParameters){
     int64_t starttime;
+    int64_t arrivaltime; //到着予測時刻
+    unsigned int phasecounter = 1;
     while(1){
         Serial.print("[DEBUG] g_phaselock is ");
         Serial.println(g_phaselockflag);
@@ -253,8 +261,8 @@ void loop0 (void* pvParameters){
             case PHASE_WAIT:
             {
                 Serial.println("START : PHASE_WAIT");
-                Serial.println("After 5 seconds enter light sleep mode");
-                delay(5000);
+                Serial.println("After 20 seconds enter light sleep mode");
+                vTaskDelay(20000);
                 esp_light_sleep_start();
                 Serial.println("I woke up");
                 g_Phase = PHASE_CONFIG;
@@ -397,6 +405,7 @@ void loop0 (void* pvParameters){
                         g_Phase = PHASE_GLIDE;
                         g_phaselockflag = true;
                         g_successflag_timer = true;
+                        starttime = esp_timer_get_time();
                     }else{
                         Serial.println("[FLIGHT] NOT Ready for expand the WING [FLIGHT]");
                     }
@@ -404,6 +413,7 @@ void loop0 (void* pvParameters){
                         Serial.println("[FLIGHT] FORCE : expand the WING [FLIGHT]");
                         g_Phase = PHASE_GLIDE;
                         g_successflag_timer = true;
+                        starttime = esp_timer_get_time();
                 }
                 break;
             }
@@ -412,16 +422,16 @@ void loop0 (void* pvParameters){
             {
                 double nowlatitude = -1.0, nowlongitude = -1.0, nowaltitude = -1.0; //取得緯度、経度、高度
                 double predictlatitude = -1.0, predictlongitude = -1.0; //予測緯度、経度
-                double tinvdelta = -1.0, tfalldelta = -1.0; //計算用一時変数
+                double deltalat = -1.0, deltalng = -1.0; //計算用一時変数
                 const double convrad = M_PI / 180.0; //ラジアン変換用定数
                 double distance,azimuthangle; //目標地点との距離、方位角
-                int64_t nowtime = esp_timer_get_time(); //現在時刻
-                int64_t arrivaltime; //到着予測時刻
+                int64_t nowtime = esp_timer_get_time() - starttime; //現在時刻
+                bool antisameflag = false; //センサ値同一検知用
 
                 BaseType_t xStatus_latitude = xQueueReceive(queue_latitude, &nowlatitude, 0);
                 if(xStatus_latitude == pdTRUE){
                     Serial.print("[NOTICE](LATTITUDE) : I received ");
-                    Serial.print(nowlatitude);
+                    Serial.print(nowlatitude,9);
                     Serial.println(" .");
                 }else{
                     Serial.println("[NOTICE](LATTITUDE) : receive FAILED");
@@ -429,7 +439,7 @@ void loop0 (void* pvParameters){
                 BaseType_t xStatus_longitude = xQueueReceive(queue_longitude, &nowlongitude, 0);
                 if(xStatus_longitude == pdTRUE){
                     Serial.print("[NOTICE](LONGITUDE) : I received ");
-                    Serial.print(nowlongitude);
+                    Serial.print(nowlongitude,9);
                     Serial.println(" .");
                 }else{
                     Serial.println("[NOTICE](LONGITUDE) : receive FAILED");
@@ -437,48 +447,84 @@ void loop0 (void* pvParameters){
                 BaseType_t xStatus_altitude = xQueueReceive(queue_altitude, &nowaltitude, 0);
                 if(xStatus_altitude == pdTRUE){
                     Serial.print("[NOTICE](ALTITUDE) : I received ");
-                    Serial.print(nowaltitude);
+                    Serial.print(nowaltitude,9);
                     Serial.println(" .");
                 }else{
                     Serial.println("[NOTICE](ALTITUDE) : receive FAILED");
                 }
+
+                //Serial.print("[DEBUG:LOOP0] g_oldlatitude, newlatitude = "); Serial.print(g_oldlatitude,9); Serial.print(" , "); Serial.println(nowlatitude,9); Serial.flush();
+                //Serial.print("[DEBUG:LOOP0] g_oldlongitude, newlongitude = "); Serial.print(g_oldlongitude,9); Serial.print(" , "); Serial.println(nowlongitude,9); Serial.flush();
+                //Serial.print("[DEBUG:LOOP0] g_oldaltitude, newaltitude = "); Serial.print(g_oldaltitude,9); Serial.print(" , "); Serial.println(nowaltitude,9); Serial.flush();
+
+                /*
+                if(g_oldlatitude == -1 || g_oldlatitude == nowlatitude) antisameflag = true;
+                if(g_oldlongitude == -1 || g_oldlongitude == nowlongitude) antisameflag = true;
+                if(g_oldaltitude == -1 || g_oldaltitude == nowaltitude) antisameflag = true;
+                */
+
+                if(g_oldlatitude == -1) antisameflag = true;
+                if(g_oldlongitude == -1) antisameflag = true;
+                if(g_oldaltitude == -1) antisameflag = true;
+
+                if(antisameflag){
+                    g_oldlatitude = nowlatitude;
+                    g_oldlongitude = nowlongitude;
+                    g_oldaltitude = nowaltitude;
+                    g_oldtime = nowtime;
+                    vTaskDelay(40);
+                    continue;
+                }
                 
-                tinvdelta = 1 / ((nowtime - g_oldtime) * (nowtime -g_oldtime));
-                tfalldelta = abs((nowaltitude - g_sealebel) / (nowaltitude -g_oldaltitude));
                 //予測到達地点の座標
-                predictlatitude = abs(nowlatitude - g_oldlatitude) * tinvdelta * tfalldelta;
-                predictlongitude = abs(nowlongitude - g_oldlongitude) * tinvdelta * tfalldelta;
+                if(g_oldaltitude != nowaltitude){
+                    deltalat = (((nowlatitude - g_oldlatitude) * (nowaltitude - g_sealebel)) / (nowaltitude - g_oldaltitude));
+                    deltalng = (((nowlongitude - g_oldlongitude) * (nowaltitude - g_oldaltitude)) / (nowaltitude - g_oldaltitude)); 
+
+                    predictlatitude = nowlatitude + deltalat;
+                    predictlongitude = nowlongitude + deltalng;
+                }else{
+                    predictlatitude = nowlatitude;  // ゼロ除算防止
+                    predictlongitude = nowlongitude; // ゼロ除算防止
+                }
+
                 Serial.print("[NOTICE] : predicted GPS = ");
-                Serial.print(predictlatitude);
+                Serial.print(predictlatitude,9);
                 Serial.print(" , ");
-                Serial.print(predictlongitude);
+                Serial.print(predictlongitude,9);
                 Serial.println(" .");
                 //目標地点と予測到達地点の距離
                 distance = g_equatorialradius * acos(sin(predictlatitude * convrad) * sin(g_targetlatitude * convrad) + cos(predictlatitude * convrad) * cos(g_targetlatitude * convrad) * cos((predictlongitude - g_targetlongitude) * convrad));
                 //予測進行方向の方位角
                 azimuthangle = 90.0 - atan2(sin((predictlongitude - nowlongitude) * convrad), cos(nowlatitude * convrad) * tan(g_targetlatitude * convrad) - sin(nowlatitude * convrad) * cos((predictlongitude - nowlatitude) * convrad));
-                //到着予測時間の更新
-                arrivaltime = nowtime + (int64_t)tfalldelta;
+                //到着予測時間
+                arrivaltime = nowtime + abs(((nowaltitude - g_sealebel) * (nowtime - g_oldtime)) / (nowaltitude - g_oldaltitude));
 
                 Serial.print("RESULT : distance = ");
-                Serial.print(distance);
+                Serial.print(distance,9);
                 Serial.print(" , azimuthangle = ");
-                Serial.println(azimuthangle);
+                Serial.println(azimuthangle,9);
+
+                Serial.print("[DEBUG:LOOP0] nowtime is ");
+                Serial.printf("% "PRId64"",nowtime);
+                Serial.print(" , arrivaltime is ");
+                Serial.printf("% "PRId64" \n",arrivaltime);
 
                 //現在時刻が到着予測時刻+-3秒になったら着水と判断する
-                if(arrivaltime > nowtime - 3000000 && arrivaltime < nowtime + 3000000){
+                if(nowtime > arrivaltime - 3000000 && nowtime < arrivaltime + 3000000){
                     g_Phase = PHASE_SPLASHDOWN;
                     g_phaselockflag = true;
+                    break;
                 }
 
                 //エマスト条件
                 if(distance >= 2.0){
-                    Serial.print("[E:distance] ");
-                    g_emgflag = true;
+                    Serial.print("[EMG:distance] ");
+                    //g_emgflag = true; // TODO 戻す
                 }
                 if((azimuthangle >= 0.0 && azimuthangle <= 30.0) || (azimuthangle >= 270.0 && azimuthangle < 360.0)){
-                    Serial.print("[E:azimuthangle] ");
-                    g_emgflag = true;
+                    Serial.print("[EMG:azimuthangle] ");
+                    //g_emgflag = true;
                 }
 
 
@@ -564,13 +610,26 @@ void loop0 (void* pvParameters){
         Serial.print("Execution tick (LOOP0) is ");
         Serial.println(executiontick);
 
-        vTaskDelay(30); //調整の必要あり at #1
+        Serial.print("[DEBUG] PHASE is ");
+        Serial.println(g_Phase);
+
+        vTaskDelay(40); //調整の必要あり at #1 TODO
     }
 }
 
 /*  loop1はセンサ系の処理を実行する  */
 void loop1 (void* pvParameters){
+    double latitude = 0.0, longitude = 0.0;
     while(1){
+        bool antisameflag = false; //センサ値同一防止用
+
+        Serial.print("[DEBUG:LOOP1] Entry loop1 : counter = ");
+        Serial.println(g_loop1counter);
+
+        int64_t entrytime = esp_timer_get_time();
+        Serial.print("[DEBUG:LOOP1] ENTRY TIME is ");
+        Serial.printf("% "PRId64" \n",entrytime);
+
         // ティック数計測
         TickType_t starttick = xTaskGetTickCount(); 
         Serial.print("fifoCount at first are ");
@@ -578,17 +637,28 @@ void loop1 (void* pvParameters){
 
         // 高度を取得
         double altitude = bmp.readAltitude(1013.25);
+        Serial.print("[DEBUG:LOOP1] altitude is ");
+        Serial.println(altitude);
 
         // 緯度、経度を取得
-        double latitude, longitude;
-        if(GPS.available() > 0){
+        while(GPS.available() > 0){
             char gpsdata = GPS.read();
-            gps.encode(gpsdata);
+            //Serial.print("[DEBUG:loop1] gps data is ");
+            //Serial.println(gpsdata);
+            //Serial.print("[DEBUG:loop1] GPS BUFFER is ");
+            //Serial.println(gpsbuffer);
+            if(gps.encode(gpsdata)) Serial.println("[DEBUG:LOOP1] Encode SUCCESS");
             if(gps.location.isUpdated()){
                 latitude = gps.location.lat();
                 longitude = gps.location.lng();
             }
         }
+
+        Serial.print("[DEBUG:LOOP1] latitude, logitude = ");
+            Serial.print(latitude,9);
+            Serial.print(" , ");
+            Serial.print(longitude,9);
+            Serial.println(" .");
 
         // MPU6050が使用不能の時、エマスト発動
         if (!dmpReady){
@@ -633,32 +703,34 @@ void loop1 (void* pvParameters){
             double magnitude = aa.getMagnitude();
             
             // 取得したデータをキューに送信
-            BaseType_t xStatus_magnitude = xQueueSend(queue_magnitude, &magnitude, 0);
-            if(xStatus_magnitude == pdTRUE){
-                Serial.println("SUCCESS: send MAGNITUDE");
-            }else{
-                Serial.println("FAILED: send MAGNITUDE");
-            }
+            if(entrytime - g_starttime >= 10000000){ //最初のデータは不安定なので取得しない
+                BaseType_t xStatus_magnitude = xQueueSend(queue_magnitude, &magnitude, 0);
+                if(xStatus_magnitude == pdTRUE){
+                    Serial.println("SUCCESS: send MAGNITUDE");
+                }else{
+                    Serial.println("FAILED: send MAGNITUDE");
+                }
 
-            BaseType_t xStatus_height = xQueueSend(queue_altitude, &altitude, 0);
-            if(xStatus_height == pdTRUE){
-                Serial.println("SUCCESS: send HEIGHT");
-            }else{
-                Serial.println("FAILED: send HEIGHT");
-            }
+                BaseType_t xStatus_height = xQueueSend(queue_altitude, &altitude, 0);
+                if(xStatus_height == pdTRUE){
+                    Serial.println("SUCCESS: send HEIGHT");
+                }else{
+                    Serial.println("FAILED: send HEIGHT");
+                }
 
-            BaseType_t xStatus_latitude = xQueueSend(queue_latitude, &latitude, 0);
-            if(xStatus_latitude == pdTRUE){
-                Serial.println("SUCCESS: send LATITUDE");
-            }else{
-                Serial.println("FAILED: send LATITUDE");
-            }
+                BaseType_t xStatus_latitude = xQueueSend(queue_latitude, &latitude, 0);
+                if(xStatus_latitude == pdTRUE){
+                    Serial.println("SUCCESS: send LATITUDE");
+                }else{
+                    Serial.println("FAILED: send LATITUDE");
+                }
 
-            BaseType_t xStatus_longitude = xQueueSend(queue_longitude, &longitude, 0);
-            if(xStatus_longitude == pdTRUE){
-                Serial.println("SUCCESS: send LONGITUDE");
-            }else{
-                Serial.println("FAILED: send LONGITUDE");
+                BaseType_t xStatus_longitude = xQueueSend(queue_longitude, &longitude, 0);
+                if(xStatus_longitude == pdTRUE){
+                    Serial.println("SUCCESS: send LONGITUDE");
+                }else{
+                    Serial.println("FAILED: send LONGITUDE");
+                }
             }
 
         }
@@ -676,7 +748,8 @@ void loop1 (void* pvParameters){
             g_Phase = PHASE_EMERGENCY;
         }
 
-        vTaskDelay(30); //調整の必要あり at #1
+        vTaskDelay(40); //調整の必要あり at #1
+        g_loop1counter++;
     }
 }
 

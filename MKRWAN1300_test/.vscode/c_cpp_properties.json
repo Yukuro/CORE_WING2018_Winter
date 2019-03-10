@@ -54,7 +54,7 @@
                 ]
             },
             "defines": [
-                "PLATFORMIO=30604",
+                "PLATFORMIO=30605",
                 "ARDUINO_SAMD_MKRWAN1300",
                 "ARDUINO_ARCH_SAMD",
                 "__SAMD21G18A__",
@@ -73,5 +73,6 @@
             "cppStandard": "c++11",
             "compilerPath": "C:/Users/tuple/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-gcc.exe -mthumb -mcpu=cortex-m0plus"
         }
-    ]
+    ],
+    "version": 4
 }
