@@ -58,8 +58,8 @@ int64_t g_oldtime = -1;
 double g_sealebel = -100000.0;
 
 //目標地点の座標
-const double g_targetlatitude = 35.660466; // TODO 戻す: 34.660161
-const double g_targetlongitude = 139.366300; // TODO 戻す: 129.456681
+const double g_targetlatitude = 34.660161;
+const double g_targetlongitude = 129.456681;
 
 //地球の赤道半径(地球を球体として見た場合)
 const double g_equatorialradius = 6371.01;
@@ -379,7 +379,7 @@ void loop0 (void* pvParameters){
             // 離床検知
             case PHASE_LAUNCH:
             {
-                if(true){ // TODO : 30000,10に戻す
+                if(launchDecide(30000,10)){
                     Serial.println("[FLIGHT] READY for LAUNCH [FLIGHT]");
                     starttime = esp_timer_get_time();
                     g_Phase = PHASE_RISE;
@@ -520,11 +520,11 @@ void loop0 (void* pvParameters){
                 //エマスト条件
                 if(distance >= 2.0){
                     Serial.print("[EMG:distance] ");
-                    //g_emgflag = true; // TODO 戻す
+                    g_emgflag = true;
                 }
                 if((azimuthangle >= 0.0 && azimuthangle <= 30.0) || (azimuthangle >= 270.0 && azimuthangle < 360.0)){
                     Serial.print("[EMG:azimuthangle] ");
-                    //g_emgflag = true;
+                    g_emgflag = true;
                 }
 
 
@@ -613,7 +613,7 @@ void loop0 (void* pvParameters){
         Serial.print("[DEBUG] PHASE is ");
         Serial.println(g_Phase);
 
-        vTaskDelay(40); //調整の必要あり at #1 TODO
+        vTaskDelay(40); //調整の必要あり at #1
     }
 }
 
