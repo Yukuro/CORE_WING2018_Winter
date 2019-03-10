@@ -1,5 +1,6 @@
 Core_BMP280_test/
 Core_Wing_test_dual/
+Core_Wing/.piolibdeps/Int64String/
 ESP32_TEST/
 workspace/
 MKRWAN1300_test3/

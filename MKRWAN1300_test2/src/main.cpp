@@ -65,6 +65,8 @@ void loop() {
         Serial.print(" ... ");
 
         if(g_commflag){
+          //sendcommand = "#" + sendcommand; //送信接頭辞をつける
+          Serial.println(sendcommand);
           lora9216e5.beginPacket();
           lora9216e5.print(sendcommand);
           Serial.println("sended");

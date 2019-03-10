@@ -4,6 +4,7 @@
 #include <SPI.h>
 #include <Adafruit_BMP280.h>
 #include <TinyGPS++.h>
+#include <Int64String.h>
 #include <Arduino.h>
 #include <math.h>
 
@@ -115,6 +116,7 @@ systemTest testDecide(char testcommand, systemTest oldTest);
 double calcSma();
 bool launchDecide(int magnitudecriterion, int countercriterion);
 bool wingaltDecide(int countercriterion);
+String cut5Digit(double doublenumber);
 
 void loop0(void* pvParameters);
 void loop1(void* pvParameters);
@@ -457,12 +459,6 @@ void loop0 (void* pvParameters){
                 //Serial.print("[DEBUG:LOOP0] g_oldlongitude, newlongitude = "); Serial.print(g_oldlongitude,9); Serial.print(" , "); Serial.println(nowlongitude,9); Serial.flush();
                 //Serial.print("[DEBUG:LOOP0] g_oldaltitude, newaltitude = "); Serial.print(g_oldaltitude,9); Serial.print(" , "); Serial.println(nowaltitude,9); Serial.flush();
 
-                /*
-                if(g_oldlatitude == -1 || g_oldlatitude == nowlatitude) antisameflag = true;
-                if(g_oldlongitude == -1 || g_oldlongitude == nowlongitude) antisameflag = true;
-                if(g_oldaltitude == -1 || g_oldaltitude == nowaltitude) antisameflag = true;
-                */
-
                 if(g_oldlatitude == -1) antisameflag = true;
                 if(g_oldlongitude == -1) antisameflag = true;
                 if(g_oldaltitude == -1) antisameflag = true;
@@ -621,8 +617,6 @@ void loop0 (void* pvParameters){
 void loop1 (void* pvParameters){
     double latitude = 0.0, longitude = 0.0;
     while(1){
-        bool antisameflag = false; //センサ値同一防止用
-
         Serial.print("[DEBUG:LOOP1] Entry loop1 : counter = ");
         Serial.println(g_loop1counter);
 
@@ -701,6 +695,8 @@ void loop1 (void* pvParameters){
             // 加速度ベクトルの大きさを取得
             mpu.dmpGetAccel(&aa, fifoBuffer);
             double magnitude = aa.getMagnitude();
+            Serial.print("[DEBUG:LOOP1] magnitude = ");
+            Serial.println(magnitude);
             
             // 取得したデータをキューに送信
             if(entrytime - g_starttime >= 10000000){ //最初のデータは不安定なので取得しない
@@ -747,6 +743,22 @@ void loop1 (void* pvParameters){
         if(g_emgflag == true){
             g_Phase = PHASE_EMERGENCY;
         }
+
+        //送信処理
+        String senddata = "&";
+        senddata += cut5Digit(latitude);
+        senddata += ",";
+        senddata += cut5Digit(longitude);
+        senddata += ",";
+        senddata += cut5Digit(altitude);
+        senddata += ",";
+        senddata += String(g_Phase);
+        senddata += ",";
+        senddata += int64String(entrytime);
+        Serial.print("[DEBUG:LOOP1] senddata is ");
+        Serial.println(senddata);
+
+        COMM.println(senddata); //MKRWAN1300に送信
 
         vTaskDelay(40); //調整の必要あり at #1
         g_loop1counter++;
@@ -824,7 +836,7 @@ bool launchDecide(int magnitudecriterion, int countercriterion){
     */
     int counter_launch = 0;
     //Serial.println("ENTRY : LAUNCHDECIDE");
-    Serial.println(g_loop0counter);
+    //Serial.println(g_loop0counter);
 
     double magnitude = 0.0;
     BaseType_t xStatus = xQueueReceive(queue_magnitude, &magnitude, 0);
@@ -834,8 +846,8 @@ bool launchDecide(int magnitudecriterion, int countercriterion){
         Serial.println("FAILED : received TEST_LAUNCH");
     }
     //Serial.println(xStatus);
-    Serial.print("magnitude is ");
-    Serial.println(magnitude);
+    //Serial.print("magnitude is ");
+    //Serial.println(magnitude);
 
     if(g_loop0counter >= 5000 && magnitude > magnitudecriterion){
         if((g_loop0counter - g_launchcounter) == 1){ //連続かどうかの判定
@@ -868,4 +880,11 @@ bool wingaltDecide(int countercriterion){
     }else{
         return false;
     }
+}
+
+String cut5Digit(double doublenumber){
+    String DigitX = String(doublenumber);
+    int point = DigitX.indexOf(".",0);
+    DigitX.remove(point + 4);
+    return DigitX;
 }
