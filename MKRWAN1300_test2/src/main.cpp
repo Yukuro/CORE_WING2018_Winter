@@ -1,3 +1,7 @@
+/*
+SENDER(地上局)
+*/
+
 #include <Arduino.h>
 #include <SPI.h>
 #include <LoRa.h>
@@ -19,10 +23,13 @@ bool g_commflag = true; //通信許可判別用フラッグ(許可=true);
 
 void blinkLED(const int LEDPIN, int time);
 loraFrequency carrierSense();
+bool receiveData();
+bool checkSignal(const String command);
 
 void setup() {
   Serial.begin(115200);
-  Serial.setTimeout(3000);
+  Serial.setTimeout(2000);
+  Serial1.begin(115200);
 
   pinMode(DEBUGLED_PIN,OUTPUT);
   digitalWrite(DEBUGLED_PIN, LOW);
@@ -45,10 +52,14 @@ void setup() {
   lora9220e5.setTxPower(13);
 
   //注意書き
-  Serial.println("DO NOT USE ENTER KEY"); // TODO : CRが扱える処理に変更
+  Serial.println("DO NOT USE ENTER KEY");
 }
 
 void loop() {
+  bool rcvmasterflag = false; //マスター信号受信通知用フラッグ(信号受信=true);
+
+
+  /* コマンド送信処理 */
   //Serial.println("[DEBUG] loop start");
   g_commflag = true; //デフォルトでは送信許可
 
@@ -57,38 +68,53 @@ void loop() {
   switch(g_Freq){
     case LORA9216E5:
     {
-      Serial.println("[INPUT:3s] command at 921.6MHz : ");
+      Serial.println("[INPUT:2s] command at 921.6MHz : ");
       String sendcommand = Serial.readStringUntil('\n'); //シリアルバッファから文字列受け取り
-      if(sendcommand.length() > 0){
-        Serial.print("[DEBUG] command is "); 
-        Serial.print(sendcommand);
-        Serial.print(" ... ");
+      Serial.print("[DEBUG] command is "); 
+      Serial.print(sendcommand);
+      Serial.print(" -> ");
 
-        if(g_commflag){
-          //sendcommand = "#" + sendcommand; //送信接頭辞をつける
-          Serial.println(sendcommand);
-          lora9216e5.beginPacket();
-          lora9216e5.print(sendcommand);
-          Serial.println("sended");
-          lora9216e5.endPacket();
-        }
+      if(g_commflag){
+        sendcommand = "x2G&5," + sendcommand; //送信識別子をつける
+        Serial.print(sendcommand);
+
+        unsigned long starttime = micros(); //送信時間計測開始
+        lora9216e5.beginPacket();
+        lora9216e5.print(sendcommand);
+        Serial.println(" sended");
+        lora9216e5.endPacket();
+        unsigned long endtime = micros(); //送信時間計測終了
+
+        Serial.print("[DEBUG] Sending time is ");
+        Serial.println(endtime - starttime);
+      }else{
+        Serial.println("[NOTICE] sending failed ...");
       }
       break;
     }
     
     case LORA9218E5:
     {
-      Serial.println("[INPUT:3s] command at 921.8MHz : ");
+      Serial.println("[INPUT:2s] command at 921.8MHz : ");
       String sendcommand = Serial.readStringUntil('\n');
       if(sendcommand.length() > 0){
         Serial.print("[DEBUG] command is "); Serial.print(sendcommand); Serial.print("... ");
 
         if(g_commflag){
-          lora9218e5.beginPacket();
-          lora9218e5.print(sendcommand);
-          lora9218e5.print('\n');
+          sendcommand = "x2G&5," + sendcommand; //送信識別子をつける
+
+          unsigned long starttime = micros(); //送信時間計測開始
+          Serial.println(sendcommand);
+          lora9216e5.beginPacket();
+          lora9216e5.print(sendcommand);
           Serial.println("sended");
-          lora9218e5.endPacket();
+          lora9216e5.endPacket();
+          unsigned long endtime = micros(); //送信時間計測終了
+
+          Serial.print("[DEBUG] Sending time is ");
+          Serial.println(endtime - starttime);
+        }else{
+          Serial.println("[NOTICE] sending failed ...");
         }
       }
       break;
@@ -96,17 +122,26 @@ void loop() {
 
     case LORA9220E5:
     {
-      Serial.println("[INPUT:3s] command at 922.0MHz : ");
+      Serial.println("[INPUT:2s] command at 922.0MHz : ");
       String sendcommand = Serial.readStringUntil('\n');
       if(sendcommand.length() > 0){
         Serial.print("[DEBUG] command is "); Serial.print(sendcommand); Serial.print("... ");
 
         if(g_commflag){
-          lora9220e5.beginPacket();
-          lora9220e5.print(sendcommand);
-          lora9220e5.print('\n');
+          sendcommand = "x2G&5," + sendcommand; //マスター側識別子をつける
+
+          unsigned long starttime = micros(); //送信時間計測開始
+          Serial.println(sendcommand);
+          lora9216e5.beginPacket();
+          lora9216e5.print(sendcommand);
           Serial.println("sended");
-          lora9220e5.endPacket();
+          lora9216e5.endPacket();
+          unsigned long endtime = micros(); //送信時間計測終了
+
+          Serial.print("[DEBUG] Sending time is ");
+          Serial.println(endtime - starttime);
+        }else{
+          Serial.println("[NOTICE] sending failed ...");
         }
       }
       break;
@@ -116,6 +151,24 @@ void loop() {
     {
       break;
     }
+
+    /* センサ値データ受信 
+    if(receiveData()){
+      Serial.println("[DEBUG] receiving is completed");
+    }else{
+      Serial.println("[DEBUG] receiving failed ...");
+    }
+    String rcvcommand = Serial1.readStringUntil('\n');
+    Serial.print("Received command is ");
+    Serial.println(rcvcommand);
+    if(checkSignal(rcvcommand)){
+      Serial.println("[DEBUG] I received slave's command");
+      rcvcommand.remove(0,6); //センサ値データを抽出(識別子を削除)
+      rcvcommand = "DATA," + rcvcommand; //処理可能なフォーマットへ変形
+      Serial.println(rcvcommand); //センサ値データを送信
+      Serial.flush();
+    }
+    */
   }
   delay(52);
 }
@@ -187,4 +240,72 @@ loraFrequency carrierSense(){
   if(csallow) return LORA9220E5;
 
   return LORASTAND;
+}
+
+bool receiveData(){
+  int packetSize;
+  String command = "";
+
+  packetSize = lora9216e5.parsePacket();
+  Serial.print("[DEBUG] packetSize is ");
+  Serial.println(packetSize);
+  while(lora9216e5.available() > 0){
+    if(packetSize){
+      int tmpcommand;
+      do{
+        tmpcommand = lora9216e5.read();
+        Serial.print("[DEBUG] tmp command is ");
+        Serial.println(tmpcommand);
+        if(tmpcommand != -1) command.concat(char(tmpcommand));
+      }while(tmpcommand != -1);
+    }
+  }
+  packetSize = lora9218e5.parsePacket();
+  if(packetSize){
+    while(lora9218e5.available()){
+      if(packetSize){
+        int tmpcommand;
+        do{
+          tmpcommand = lora9216e5.read();
+          Serial.print("[DEBUG] tmp command is ");
+          Serial.println(tmpcommand);
+          if(tmpcommand != -1) command.concat(char(tmpcommand));
+        }while(tmpcommand != -1);
+      }
+    }
+  }
+  packetSize = lora9220e5.parsePacket();
+  if(packetSize){
+    while(lora9220e5.available()){
+      if(packetSize){
+      int tmpcommand;
+        do{
+          tmpcommand = lora9216e5.read();
+          Serial.print("[DEBUG] tmp command is ");
+          Serial.println(tmpcommand);
+          if(tmpcommand != -1) command.concat(char(tmpcommand));
+        }while(tmpcommand != -1);
+      }
+    }
+  }
+
+  Serial.print("[DEBUG:receiveData] command is ");
+  Serial.println(command);
+
+  if(Serial1.print(command) > 0){
+    return true;
+  }else{
+    return false;
+  }
+}
+
+bool checkSignal(const String command){
+  const String identificate = "d+A84";
+  Serial.print("[DEBUG] command's length is ");
+  Serial.println(command.length());
+  int indexsignal = command.indexOf(identificate);
+  Serial.print("[DEBUG] index signal is ");
+  Serial.println(indexsignal);
+  if(indexsignal >= 0) return true;
+  return false;
 }

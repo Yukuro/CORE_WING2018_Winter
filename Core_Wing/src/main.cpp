@@ -7,6 +7,7 @@
 #include <Int64String.h>
 #include <Arduino.h>
 #include <math.h>
+#include <extEEPROM.h>
 
 #define INTERRUPT_PIN 4  //mpu6050の割り込みピン
 
@@ -27,6 +28,8 @@ uint8_t fifoBuffer[64]; // FIFO格納バッファ
 
 VectorInt16 aa;         // 加速度格納用
 
+extEEPROM eep(kbits_2048, 2, 256); //2048kbit,pagesize=256bitのEEPROM
+
 String g_receivedcommand = "";
 char g_command ='/';
 char g_testcommand = '/';
@@ -42,6 +45,9 @@ int g_launchcounter = 0;
 
 //ループカウンタ(TEST_WINGALT,TEST_WINGTIMER)
 int g_wingcounter = 0;
+
+//EEPROMのアドレス指定用カウンター
+int g_addrcounter = 1;
 
 int64_t g_starttime; //全体のstarttime
 
@@ -117,6 +123,8 @@ double calcSma();
 bool launchDecide(int magnitudecriterion, int countercriterion);
 bool wingaltDecide(int countercriterion);
 String cut5Digit(double doublenumber);
+bool writeData(String data);
+String readDataAll();
 
 void loop0(void* pvParameters);
 void loop1(void* pvParameters);
@@ -239,6 +247,13 @@ void setup() {
     esp_sleep_enable_ext0_wakeup(GPIO_NUM_33, 1);
 
     g_starttime = esp_timer_get_time();
+
+    //EEPROM初期設定
+    uint8_t eepStatus = eep.begin(eep.twiClock400kHz);   //go fast!
+    if (eepStatus) {
+        Serial.print(F("extEEPROM.begin() failed, status = "));
+        Serial.println(eepStatus);
+    }
 
     // デュアルコアの設定
     xTaskCreatePinnedToCore(loop0, "Loop0", 8192, NULL, 2, &th[0], 0);
@@ -616,9 +631,12 @@ void loop0 (void* pvParameters){
 /*  loop1はセンサ系の処理を実行する  */
 void loop1 (void* pvParameters){
     double latitude = 0.0, longitude = 0.0;
+    String oldlatitude = "@", oldlongitude = "@", oldaltitude = "@", oldphase = "@"; //センサ値の同一値検証用  
     while(1){
         Serial.print("[DEBUG:LOOP1] Entry loop1 : counter = ");
         Serial.println(g_loop1counter);
+
+        bool eepromwriteflag = false; //EEPROM書き込み許可用フラッグ(許可=true)
 
         int64_t entrytime = esp_timer_get_time();
         Serial.print("[DEBUG:LOOP1] ENTRY TIME is ");
@@ -637,10 +655,6 @@ void loop1 (void* pvParameters){
         // 緯度、経度を取得
         while(GPS.available() > 0){
             char gpsdata = GPS.read();
-            //Serial.print("[DEBUG:loop1] gps data is ");
-            //Serial.println(gpsdata);
-            //Serial.print("[DEBUG:loop1] GPS BUFFER is ");
-            //Serial.println(gpsbuffer);
             if(gps.encode(gpsdata)) Serial.println("[DEBUG:LOOP1] Encode SUCCESS");
             if(gps.location.isUpdated()){
                 latitude = gps.location.lat();
@@ -745,19 +759,50 @@ void loop1 (void* pvParameters){
         }
 
         //送信処理
-        String senddata = "&";
-        senddata += cut5Digit(latitude);
+        /* 前に取ったセンサ値とひとつでも異なるならばEEPROMに保存 */
+        String senddata = "S";
+        String latstr = String(latitude,6);
+        if(latstr.indexOf(oldlatitude) < 0) eepromwriteflag = true;
+        senddata += latstr;
         senddata += ",";
-        senddata += cut5Digit(longitude);
+        Serial.println(eepromwriteflag);
+
+        String lngstr = String(longitude,6);
+        if(lngstr.indexOf(oldlongitude) < 0) eepromwriteflag = true;
+        senddata += lngstr;
         senddata += ",";
-        senddata += cut5Digit(altitude);
+        Serial.println(eepromwriteflag);
+
+        String altstr = String(altitude,6);
+        if(altstr.indexOf(oldaltitude) < 0) eepromwriteflag = true;
+        senddata += altstr;
         senddata += ",";
-        senddata += String(g_Phase);
+        Serial.println(eepromwriteflag);
+
+        String phasestr = String(g_Phase,6);
+        if(phasestr.indexOf(oldphase) < 0) eepromwriteflag = true;
+        senddata += phasestr;
         senddata += ",";
+        Serial.println(eepromwriteflag);
         senddata += int64String(entrytime);
         Serial.print("[DEBUG:LOOP1] senddata is ");
         Serial.println(senddata);
 
+        if(eepromwriteflag){    
+            if(writeData(senddata)){
+                Serial.println("[DEBUG:LOOP1] SUCCESS send to EEPROM");
+                Serial.print("[DEBUG:LOOP1] stored data is ");
+                Serial.println(senddata);
+            }else{
+                Serial.println("[DEBUG:LOOP1] FAILED send to EEPROM");
+            }
+        }
+
+        oldlatitude = latstr;
+        oldlongitude = lngstr;
+        oldaltitude = altstr;
+        oldphase = phasestr;
+        
         COMM.println(senddata); //MKRWAN1300に送信
 
         vTaskDelay(40); //調整の必要あり at #1
@@ -883,8 +928,29 @@ bool wingaltDecide(int countercriterion){
 }
 
 String cut5Digit(double doublenumber){
-    String DigitX = String(doublenumber);
-    int point = DigitX.indexOf(".",0);
-    DigitX.remove(point + 4);
+    String DigitX = String(doublenumber,5);
     return DigitX;
+}
+
+bool writeData(String data){
+  byte bytes[data.length() + 1];
+  data.getBytes(bytes, data.length()+1);
+  Serial.println("Start wrinting EEPROM");
+  byte i2cstate = eep.write(g_addrcounter, bytes, data.length());
+  g_addrcounter += data.length();
+  if(i2cstate == 0) return true;
+  return false;
+}
+
+String readDataAll(){
+  String alldata = "";
+  int datacounter = g_addrcounter - 1;
+  byte bytes[datacounter];
+  byte i2cstate = eep.read(1,bytes,datacounter);
+
+  for(int i = 0; i < datacounter; i++){
+    alldata.concat((char)bytes[i]);
+  }
+
+  return alldata;
 }
