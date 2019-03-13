@@ -75,8 +75,6 @@ void loop() {
     rcvcommand.remove(0,6); //コマンドを抽出(識別子を削除)
   }
 
-  //TODO コマンド動作もrcvmasterflagを通じて動作させる
-
   //エマスト時動作
   if(rcvcommand == "e"){
     Serial.println("[EMG] Emergency situation occurred !!! [EMG]");
@@ -101,9 +99,11 @@ void loop() {
     Serial.println("[DEBUG] : SUCESSFUL send via UART1");
   }
 
+  delay(500);
+
   Serial.println("[DEBUG] Entry send sequence");
-  //if(rcvmasterflag){
-    /* センサ値データ送信処理 
+  if(rcvmasterflag){
+    /* センサ値データ送信処理 */
     String sendcommand = "d+A84," + Serial1.readStringUntil('\n');
     g_commflag = true; //デフォルトでは送信許可
 
@@ -174,8 +174,7 @@ void loop() {
         break;
       }
     }
-    */
-  //}
+  }
 
   delay(50);
 }

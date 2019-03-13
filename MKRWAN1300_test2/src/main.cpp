@@ -28,7 +28,7 @@ bool checkSignal(const String command);
 
 void setup() {
   Serial.begin(115200);
-  Serial.setTimeout(2000);
+  Serial.setTimeout(1000);
   Serial1.begin(115200);
 
   pinMode(DEBUGLED_PIN,OUTPUT);
@@ -58,9 +58,9 @@ void setup() {
 void loop() {
   bool rcvmasterflag = false; //マスター信号受信通知用フラッグ(信号受信=true);
 
-
   /* コマンド送信処理 */
   //Serial.println("[DEBUG] loop start");
+  Serial.println("[DEBUG] Start send sequence");
   g_commflag = true; //デフォルトでは送信許可
 
   g_Freq = carrierSense();
@@ -68,7 +68,7 @@ void loop() {
   switch(g_Freq){
     case LORA9216E5:
     {
-      Serial.println("[INPUT:2s] command at 921.6MHz : ");
+      Serial.println("[INPUT:1s] command at 921.6MHz : ");
       String sendcommand = Serial.readStringUntil('\n'); //シリアルバッファから文字列受け取り
       Serial.print("[DEBUG] command is "); 
       Serial.print(sendcommand);
@@ -151,18 +151,33 @@ void loop() {
     {
       break;
     }
+  }
 
-    /* センサ値データ受信 
+  /* センサ値データ受信 */
+  Serial.println("Start receive sequence");
+  unsigned long starttime = millis();
+  unsigned long entrytime = millis();
+  while(receiveData()){
+  //while((entrytime - starttime) <= 1500){
+    Serial.println("[RECEIVE] receive success !!!");
+    /*
+    Serial.println("[RECEIVE] receiving now ...");
+    entrytime = millis();
+    Serial.print("[RECEIVE] Elapsed time is ");
+    Serial.println(entrytime - starttime);
     if(receiveData()){
-      Serial.println("[DEBUG] receiving is completed");
+      Serial.println("[RECEIVE] receiving is completed");
     }else{
-      Serial.println("[DEBUG] receiving failed ...");
+      Serial.println("[RECEIVE] receiving failed ...");
     }
+    
     String rcvcommand = Serial1.readStringUntil('\n');
-    Serial.print("Received command is ");
+    Serial.print("[RECEIVE] rcvcommand . length is ");
+    Serial.println(rcvcommand.length());
+    Serial.print("[RECEIVE] Received command is ");
     Serial.println(rcvcommand);
     if(checkSignal(rcvcommand)){
-      Serial.println("[DEBUG] I received slave's command");
+      Serial.println("[RECEIVE] I received slave's command");
       rcvcommand.remove(0,6); //センサ値データを抽出(識別子を削除)
       rcvcommand = "DATA," + rcvcommand; //処理可能なフォーマットへ変形
       Serial.println(rcvcommand); //センサ値データを送信
@@ -170,6 +185,7 @@ void loop() {
     }
     */
   }
+
   delay(52);
 }
 
@@ -301,11 +317,11 @@ bool receiveData(){
 
 bool checkSignal(const String command){
   const String identificate = "d+A84";
-  Serial.print("[DEBUG] command's length is ");
-  Serial.println(command.length());
+  //Serial.print("[DEBUG] command's length is ");
+  //Serial.println(command.length());
   int indexsignal = command.indexOf(identificate);
-  Serial.print("[DEBUG] index signal is ");
-  Serial.println(indexsignal);
+  //Serial.print("[DEBUG] index signal is ");
+  //Serial.println(indexsignal);
   if(indexsignal >= 0) return true;
   return false;
 }
