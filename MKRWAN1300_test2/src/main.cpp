@@ -75,7 +75,7 @@ void loop() {
       Serial.print(" -> ");
 
       if(g_commflag){
-        sendcommand = "x2G&5," + sendcommand; //送信識別子をつける
+        //sendcommand = "x2G&5," + sendcommand; //送信識別子をつける
         Serial.print(sendcommand);
 
         unsigned long starttime = micros(); //送信時間計測開始
@@ -101,7 +101,7 @@ void loop() {
         Serial.print("[DEBUG] command is "); Serial.print(sendcommand); Serial.print("... ");
 
         if(g_commflag){
-          sendcommand = "x2G&5," + sendcommand; //送信識別子をつける
+          //sendcommand = "x2G&5," + sendcommand; //送信識別子をつける
 
           unsigned long starttime = micros(); //送信時間計測開始
           Serial.println(sendcommand);
@@ -128,7 +128,7 @@ void loop() {
         Serial.print("[DEBUG] command is "); Serial.print(sendcommand); Serial.print("... ");
 
         if(g_commflag){
-          sendcommand = "x2G&5," + sendcommand; //マスター側識別子をつける
+          //sendcommand = "x2G&5," + sendcommand; //マスター側識別子をつける
 
           unsigned long starttime = micros(); //送信時間計測開始
           Serial.println(sendcommand);
@@ -151,39 +151,6 @@ void loop() {
     {
       break;
     }
-  }
-
-  /* センサ値データ受信 */
-  Serial.println("Start receive sequence");
-  unsigned long starttime = millis();
-  unsigned long entrytime = millis();
-  while(receiveData()){
-  //while((entrytime - starttime) <= 1500){
-    Serial.println("[RECEIVE] receive success !!!");
-    /*
-    Serial.println("[RECEIVE] receiving now ...");
-    entrytime = millis();
-    Serial.print("[RECEIVE] Elapsed time is ");
-    Serial.println(entrytime - starttime);
-    if(receiveData()){
-      Serial.println("[RECEIVE] receiving is completed");
-    }else{
-      Serial.println("[RECEIVE] receiving failed ...");
-    }
-    
-    String rcvcommand = Serial1.readStringUntil('\n');
-    Serial.print("[RECEIVE] rcvcommand . length is ");
-    Serial.println(rcvcommand.length());
-    Serial.print("[RECEIVE] Received command is ");
-    Serial.println(rcvcommand);
-    if(checkSignal(rcvcommand)){
-      Serial.println("[RECEIVE] I received slave's command");
-      rcvcommand.remove(0,6); //センサ値データを抽出(識別子を削除)
-      rcvcommand = "DATA," + rcvcommand; //処理可能なフォーマットへ変形
-      Serial.println(rcvcommand); //センサ値データを送信
-      Serial.flush();
-    }
-    */
   }
 
   delay(52);

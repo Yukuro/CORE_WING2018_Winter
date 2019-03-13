@@ -155,12 +155,6 @@ void setup() {
     Serial.println(F("Testing device connections..."));
     Serial.println(mpu.testConnection() ? F("MPU6050 connection successful") : F("MPU6050 connection failed"));
 
-    // 開始まで待機
-    Serial.println(F("\nSend any character to begin DMP: "));
-    while (Serial.available() && Serial.read()); // empty buffer
-    while (!Serial.available());                 // wait for data
-    while (Serial.available() && Serial.read()); // empty buffer again
-
     // DMPの初期化
     Serial.println(F("Initializing DMP..."));
     devStatus = mpu.dmpInitialize();
@@ -267,8 +261,8 @@ void loop0 (void* pvParameters){
     int64_t arrivaltime; //到着予測時刻
     unsigned int phasecounter = 1;
     while(1){
-        Serial.print("[DEBUG] g_phaselock is ");
-        Serial.println(g_phaselockflag);
+        //Serial.print("[DEBUG] g_phaselock is ");
+        //Serial.println(g_phaselockflag);
         g_loop0counter++;
         TickType_t starttick = xTaskGetTickCount();
         //Serial.println("loop0 is working");
@@ -294,10 +288,10 @@ void loop0 (void* pvParameters){
                 g_sealebel = calcSma();
                 Serial.print("CONFIG : the set value is "); Serial.println(g_sealebel);
                 if(g_sealebel == -100000.0) g_phaselockflag = false; //海面高が更新されていれば自動遷移禁止
-                Serial.print("[DEBUG] g_sealebel, g_phaselock are ");
-                Serial.print(g_sealebel);
-                Serial.print(" , ");
-                Serial.println(g_phaselockflag);
+                //Serial.print("[DEBUG] g_sealebel, g_phaselock are ");
+                //Serial.print(g_sealebel);
+                //Serial.print(" , ");
+                //Serial.println(g_phaselockflag);
                 break;
             }
 
@@ -353,12 +347,12 @@ void loop0 (void* pvParameters){
                             Serial.println("[TEST] Start Verify the wing expansion (TIMER) [TEST]");
                             starttime = esp_timer_get_time();
                         }
-                        Serial.println("ENTRY : TEST_WINGTIMER");
+                        //Serial.println("ENTRY : TEST_WINGTIMER");
 
                         int64_t entrytime = esp_timer_get_time();
                         int64_t elapsedtime = entrytime - starttime;
-                        Serial.print("elapsed time is ");
-                        Serial.printf("% "PRId64" \n",elapsedtime);
+                        //Serial.print("elapsed time is ");
+                        //Serial.printf("% "PRId64" \n",elapsedtime);
                         if(elapsedtime < 10000000){
                             if(wingaltDecide(5)){
                                 Serial.println("[TEST] Ready for expand the wing [TEST]");
@@ -378,7 +372,7 @@ void loop0 (void* pvParameters){
                     // 何もしない
                     case TEST_STAND:
                     {
-                        Serial.println("TEST_STAND");
+                        Serial.println("[TEST] Entry TEST_STAND [TEST]");
                         break;
                     }
 
@@ -412,8 +406,8 @@ void loop0 (void* pvParameters){
             {
                 int64_t entrytime = esp_timer_get_time();
                 int64_t elapsedtime = entrytime - starttime;
-                Serial.print("[DEBUG] Elapse time is ");
-                Serial.printf("% "PRId64" \n",elapsedtime);
+                //Serial.print("[DEBUG] Elapse time is ");
+                //Serial.printf("% "PRId64" \n",elapsedtime);
                 if(elapsedtime < 7000000){
                     Serial.println("[FLIGHT] NOT Ready for expand the WING [FLIGHT]");
                 }else if(elapsedtime >= 7000000 && elapsedtime < 16000000){
@@ -577,7 +571,7 @@ void loop0 (void* pvParameters){
 
             case PHASE_STAND:
             {
-                Serial.println("PHASE_STAND");
+                Serial.println("[FLIGHT] Entry PHASE_STAND");
                 break;
             }
         
@@ -588,9 +582,9 @@ void loop0 (void* pvParameters){
         }
 
         // コマンドを待つ
-        Serial.print("[DEBUG] COMM.available is ");
-        Serial.println(COMM.available());
-        Serial.println(g_phaselockflag);
+        //Serial.print("[DEBUG] COMM.available is ");
+        //Serial.println(COMM.available());
+        //Serial.println(g_phaselockflag);
         if(g_phaselockflag && COMM.available() > 0){
             g_receivedcommand = COMM.readStringUntil('\n');
             Serial.print("[DEBUG] ");
@@ -618,8 +612,8 @@ void loop0 (void* pvParameters){
 
         TickType_t endtick = xTaskGetTickCount();
         TickType_t executiontick = endtick - starttick;
-        Serial.print("Execution tick (LOOP0) is ");
-        Serial.println(executiontick);
+        //Serial.print("Execution tick (LOOP0) is ");
+        //Serial.println(executiontick);
 
         Serial.print("[DEBUG] PHASE is ");
         Serial.println(g_Phase);
@@ -633,24 +627,24 @@ void loop1 (void* pvParameters){
     double latitude = 0.0, longitude = 0.0;
     String oldlatitude = "@", oldlongitude = "@", oldaltitude = "@", oldphase = "@"; //センサ値の同一値検証用  
     while(1){
-        Serial.print("[DEBUG:LOOP1] Entry loop1 : counter = ");
-        Serial.println(g_loop1counter);
+        //Serial.print("[DEBUG:LOOP1] Entry loop1 : counter = ");
+        //Serial.println(g_loop1counter);
 
         bool eepromwriteflag = false; //EEPROM書き込み許可用フラッグ(許可=true)
 
         int64_t entrytime = esp_timer_get_time();
-        Serial.print("[DEBUG:LOOP1] ENTRY TIME is ");
-        Serial.printf("% "PRId64" \n",entrytime);
+        //Serial.print("[DEBUG:LOOP1] ENTRY TIME is ");
+        //Serial.printf("% "PRId64" \n",entrytime);
 
         // ティック数計測
         TickType_t starttick = xTaskGetTickCount(); 
-        Serial.print("fifoCount at first are ");
-        Serial.printf("%"PRId16"\n",fifoCount);
+        //Serial.print("fifoCount at first are ");
+        //Serial.printf("%"PRId16"\n",fifoCount);
 
         // 高度を取得
         double altitude = bmp.readAltitude(1013.25);
-        Serial.print("[DEBUG:LOOP1] altitude is ");
-        Serial.println(altitude);
+        //Serial.print("[DEBUG:LOOP1] altitude is ");
+        //Serial.println(altitude);
 
         // 緯度、経度を取得
         while(GPS.available() > 0){
@@ -716,23 +710,23 @@ void loop1 (void* pvParameters){
             if(entrytime - g_starttime >= 10000000){ //最初のデータは不安定なので取得しない
                 BaseType_t xStatus_magnitude = xQueueSend(queue_magnitude, &magnitude, 0);
                 if(xStatus_magnitude == pdTRUE){
-                    Serial.println("SUCCESS: send MAGNITUDE");
+                    Serial.print("SUCCESS: send MAGNITUDE ");
                 }else{
-                    Serial.println("FAILED: send MAGNITUDE");
+                    Serial.print("FAILED: send MAGNITUDE ");
                 }
 
                 BaseType_t xStatus_height = xQueueSend(queue_altitude, &altitude, 0);
                 if(xStatus_height == pdTRUE){
-                    Serial.println("SUCCESS: send HEIGHT");
+                    Serial.print("SUCCESS: send HEIGHT ");
                 }else{
-                    Serial.println("FAILED: send HEIGHT");
+                    Serial.print("FAILED: send HEIGHT ");
                 }
 
                 BaseType_t xStatus_latitude = xQueueSend(queue_latitude, &latitude, 0);
                 if(xStatus_latitude == pdTRUE){
-                    Serial.println("SUCCESS: send LATITUDE");
+                    Serial.print("SUCCESS: send LATITUDE ");
                 }else{
-                    Serial.println("FAILED: send LATITUDE");
+                    Serial.print("FAILED: send LATITUDE ");
                 }
 
                 BaseType_t xStatus_longitude = xQueueSend(queue_longitude, &longitude, 0);
@@ -747,11 +741,11 @@ void loop1 (void* pvParameters){
 
         TickType_t endtick = xTaskGetTickCount();
         TickType_t executiontick = endtick - starttick;
-        Serial.print("Execution tick (LOOP1) is ");
-        Serial.println(executiontick);
+        //Serial.print("Execution tick (LOOP1) is ");
+        //Serial.println(executiontick);
 
-        Serial.print("fifoCount at end are ");
-        Serial.printf("%"PRId16"\n",fifoCount);
+        //Serial.print("fifoCount at end are ");
+        //Serial.printf("%"PRId16"\n",fifoCount);
 
         //エマスト
         if(g_emgflag == true){
@@ -765,25 +759,25 @@ void loop1 (void* pvParameters){
         if(latstr.indexOf(oldlatitude) < 0) eepromwriteflag = true;
         senddata += latstr;
         senddata += ",";
-        Serial.println(eepromwriteflag);
+        //Serial.println(eepromwriteflag);
 
         String lngstr = String(longitude,6);
         if(lngstr.indexOf(oldlongitude) < 0) eepromwriteflag = true;
         senddata += lngstr;
         senddata += ",";
-        Serial.println(eepromwriteflag);
+        //Serial.println(eepromwriteflag);
 
         String altstr = String(altitude,6);
         if(altstr.indexOf(oldaltitude) < 0) eepromwriteflag = true;
         senddata += altstr;
         senddata += ",";
-        Serial.println(eepromwriteflag);
+        //Serial.println(eepromwriteflag);
 
         String phasestr = String(g_Phase,6);
         if(phasestr.indexOf(oldphase) < 0) eepromwriteflag = true;
         senddata += phasestr;
         senddata += ",";
-        Serial.println(eepromwriteflag);
+        //Serial.println(eepromwriteflag);
         senddata += int64String(entrytime);
         Serial.print("[DEBUG:LOOP1] senddata is ");
         Serial.println(senddata);
@@ -791,8 +785,8 @@ void loop1 (void* pvParameters){
         if(eepromwriteflag){    
             if(writeData(senddata)){
                 Serial.println("[DEBUG:LOOP1] SUCCESS send to EEPROM");
-                Serial.print("[DEBUG:LOOP1] stored data is ");
-                Serial.println(senddata);
+                //Serial.print("[DEBUG:LOOP1] stored data is ");
+                //Serial.println(senddata);
             }else{
                 Serial.println("[DEBUG:LOOP1] FAILED send to EEPROM");
             }
@@ -935,7 +929,7 @@ String cut5Digit(double doublenumber){
 bool writeData(String data){
   byte bytes[data.length() + 1];
   data.getBytes(bytes, data.length()+1);
-  Serial.println("Start wrinting EEPROM");
+  //Serial.println("Start wrinting EEPROM");
   byte i2cstate = eep.write(g_addrcounter, bytes, data.length());
   g_addrcounter += data.length();
   if(i2cstate == 0) return true;
