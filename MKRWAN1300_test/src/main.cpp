@@ -1,7 +1,3 @@
-/*
-RECIVER
-*/
-
 #include <Arduino.h>
 #include <SPI.h>
 #include <LoRa.h>
@@ -11,12 +7,19 @@ LoRaClass lora9216e5; //921.6MHz
 LoRaClass lora9218e5; //921.8MHz
 LoRaClass lora9220e5; //922.0MHz
 
-const int SERVO1_PIN = 4;
-const int SERVO2_PIN = 5;
-const int WAKEUP_PIN = 6;
+const int EMGSERVO1PIN = 4;
+const int EMGSERVO2PIN = 5;
 
-Servo servo1;
-Servo servo2;
+const int FLIGHTMODEPIN = 13;
+const int EMGMODEPIN = 14;
+//const int MKRTOESPPIN = 6;
+
+int g_loopcounter = 1;
+int g_emgloopcounter = 1;
+int g_oldsignal = -1;
+
+Servo emgservo1;
+Servo emgservo2;
 
 enum loraFrequency{
   LORA9216E5,
@@ -26,10 +29,9 @@ enum loraFrequency{
 } g_Freq;
 
 bool g_commflag = true; //通信許可判別用フラッグ(許可=true);
+bool g_emgflag = false; //エマスト判断用フラッグ(エマストと判断=true)
 
 String receiveCommand();
-loraFrequency carrierSense();
-bool checkSignal(const String command);
 
 void setup() {
   Serial.begin(115200);
@@ -53,54 +55,71 @@ void setup() {
   lora9220e5.setTxPower(13);
 
   //サーボの設定
-  servo1.attach(SERVO1_PIN);
-  servo2.attach(SERVO2_PIN);
+  emgservo1.attach(EMGSERVO1PIN);
+  emgservo2.attach(EMGSERVO2PIN);
+
+  emgservo1.write(95);
+  delay(100);
+  emgservo2.write(95);
+  delay(100);
+
+  pinMode(FLIGHTMODEPIN, OUTPUT); //フライトモード遷移用
+  digitalWrite(FLIGHTMODEPIN, HIGH);
+  pinMode(EMGMODEPIN, INPUT_PULLUP); //ESP32からのエマスト通知用
 
   //sleep回復用ピンの設定
-  pinMode(WAKEUP_PIN, OUTPUT);
-  digitalWrite(WAKEUP_PIN,LOW);
+  //pinMode(WAKEUP_PIN, OUTPUT);
+  //digitalWrite(WAKEUP_PIN,LOW);
 }
 
 void loop() {
-  Serial.println("[DEBUG] Entry receive sequence");
-  bool rcvmasterflag = false; //マスター信号受信通知用フラッグ(信号受信=true);
   String rcvcommand = receiveCommand();
-
   Serial.print("Received command is ");
   Serial.println(rcvcommand);
 
-  /*
-  if(checkSignal(rcvcommand)){
-    Serial.println("[DEBUG] I received master's command");
-    rcvmasterflag = true;
-    rcvcommand.remove(0,6); //コマンドを抽出(識別子を削除)
-  }
-  */
-
   //エマスト時動作
-  if(rcvcommand == "e"){
+  int nowsignal = digitalRead(EMGMODEPIN);
+  Serial.print("EMGMODEPIN is ");
+  Serial.println(nowsignal);
+  /* 連続判定 */
+  int emgcounter;
+  if(nowsignal != g_oldsignal) emgcounter = 0;
+  if(digitalRead(EMGMODEPIN) == LOW){
+    if((g_loopcounter - g_emgloopcounter) == 1) emgcounter++;
+    g_emgloopcounter = g_loopcounter;
+  }
+  g_oldsignal = nowsignal;
+  Serial.print("[EMG] emgcounter is ");
+  Serial.println(emgcounter);
+  if(emgcounter >= 5) g_emgflag = true;
+  if(rcvcommand == "emg") g_emgflag = true;
+
+  if(g_emgflag){
     Serial.println("[EMG] Emergency situation occurred !!! [EMG]");
     delay(100);
-    //servo1.write();
-    //servo2.write();
-    //while(1); //エマスト時には以後一切のコマンドを禁止(間違い防止)
+    emgservo1.write(160);
+    delay(100);
+    emgservo2.write(175);
+    delay(100);
+    while(1); //エマスト時には以後一切のコマンドを禁止(間違い防止)
   }
 
-  //sleep復帰
-  if(rcvcommand == "x"){
-    digitalWrite(WAKEUP_PIN,HIGH);
+  //フライトモードに遷移
+  if(rcvcommand == "l"){
+    Serial.print("[FLIGHT] I received flight signal ... "); //TODO remove
+    digitalWrite(FLIGHTMODEPIN, LOW);
+    delay(100);
+    Serial.println("done");
   }
 
-  Serial.print("[DEBUG] g_commflag states is ");
-  Serial.println(g_commflag);
-  //UART1経由でコマンド転送
-  if(g_commflag){
-    //Serial.println("[DEBUG] : Entry send UART1 sequence");
-    Serial1.println(rcvcommand);
-    Serial1.flush();
-    Serial.println("[DEBUG] : SUCESSFUL send via UART1");
+  //操作のキャンセル
+  if(rcvcommand == "cncl"){
+    Serial.print("[FLIGHT] Cancel all operations ...");
+    digitalWrite(FLIGHTMODEPIN, HIGH);
+    delay(100);
+    Serial.println(" done.");
   }
-
+  g_loopcounter++;
   delay(50);
 }
 
@@ -116,7 +135,7 @@ String receiveCommand(){
       int tmpcommand;
       do{
         tmpcommand = lora9216e5.read();
-        //Serial.println(tmpcommand);
+        Serial.println(tmpcommand);
         if(tmpcommand != -1) command.concat(char(tmpcommand));
       }while(tmpcommand != -1);
     }
@@ -128,8 +147,8 @@ String receiveCommand(){
         int tmpcommand;
         do{
           tmpcommand = lora9216e5.read();
-          //Serial.print("[DEBUG] tmp command is ");
-          //Serial.println(tmpcommand);
+          Serial.print("[DEBUG] tmp command is ");
+          Serial.println(tmpcommand);
           if(tmpcommand != -1) command.concat(char(tmpcommand));
         }while(tmpcommand != -1);
       }
@@ -142,8 +161,8 @@ String receiveCommand(){
       int tmpcommand;
         do{
           tmpcommand = lora9216e5.read();
-          //Serial.print("[DEBUG] tmp command is ");
-          //Serial.println(tmpcommand);
+          Serial.print("[DEBUG] tmp command is ");
+          Serial.println(tmpcommand);
           if(tmpcommand != -1) command.concat(char(tmpcommand));
         }while(tmpcommand != -1);
       }
@@ -152,73 +171,3 @@ String receiveCommand(){
 
   return command;
 }
-
-/*
-loraFrequency carrierSense(){
-
-  //経過時間計測
-  unsigned long starttime = micros();
-  unsigned long entrytime = micros();
-  bool csallow = false; //電波放出許可判定(許可=true)
-  int packetSize;
-
-  while(entrytime - starttime <= 128){
-    packetSize = lora9216e5.parsePacket();
-      if(packetSize){
-        Serial.print("[NOTICE] : Entry CS(921.6MHz) at RSSI = ");
-        int rssi = lora9216e5.packetRssi(); //RSSIを取得
-        Serial.println(rssi);
-        if(rssi <= -80) csallow = true; //-80dBm以下の出力なら電波の放出を許可
-      }else{
-        csallow = true; //その周波数帯が使われていないなら電波の放出を許可
-      }
-      entrytime = micros();
-  }
-  if(csallow) return LORA9216E5;
-
-  starttime = micros();
-  entrytime = micros();
-  while(entrytime - starttime <= 128){
-    packetSize = lora9218e5.parsePacket();
-      if(packetSize){
-        Serial.print("[NOTICE] : Entry CS(921.8MHz) at RSSI = ");
-        int rssi = lora9218e5.packetRssi();
-        Serial.println(rssi);
-        if(rssi <= -80) csallow = true;
-      }else{
-        csallow = true;
-      }
-      entrytime = micros();
-  }
-  if(csallow) return LORA9218E5;
-
-  starttime = micros();
-  entrytime = micros();
-  while(entrytime - starttime <= 128){
-    packetSize = lora9220e5.parsePacket();
-      if(packetSize){
-        Serial.print("[NOTICE] : Entry CS(922.0MHz) at RSSI = ");
-        int rssi = lora9220e5.packetRssi();
-        Serial.println(rssi);
-        if(rssi <= -80) csallow = true;
-      }else{
-        csallow = true;
-      }
-      entrytime = micros();
-  }
-  if(csallow) return LORA9220E5;
-
-  return LORASTAND;
-}
-
-bool checkSignal(const String command){
-  const String identificate = "x2G&5";
-  //Serial.print("[DEBUG] command's length is ");
-  //Serial.println(command.length());
-  int indexsignal = command.indexOf(identificate);
-  //Serial.print("[DEBUG] index signal is ");
-  //Serial.println(indexsignal);
-  if(indexsignal >= 0) return true;
-  return false;
-}
-*/

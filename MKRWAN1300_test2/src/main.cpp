@@ -164,11 +164,6 @@ void blinkLED(const int LEDPIN, int time){
 }
 
 loraFrequency carrierSense(){
-  /*
-    ARIB STD-T108準拠
-    キャリアセンス時間:128us
-    キャリアセンスレベル:-80dBm以上
-  */
 
   //経過時間計測
   unsigned long starttime = micros();
@@ -280,15 +275,4 @@ bool receiveData(){
   }else{
     return false;
   }
-}
-
-bool checkSignal(const String command){
-  const String identificate = "d+A84";
-  //Serial.print("[DEBUG] command's length is ");
-  //Serial.println(command.length());
-  int indexsignal = command.indexOf(identificate);
-  //Serial.print("[DEBUG] index signal is ");
-  //Serial.println(indexsignal);
-  if(indexsignal >= 0) return true;
-  return false;
 }

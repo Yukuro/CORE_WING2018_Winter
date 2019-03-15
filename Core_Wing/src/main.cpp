@@ -8,6 +8,7 @@
 #include <Arduino.h>
 #include <math.h>
 #include <extEEPROM.h>
+#include <ESP32Servo.h>
 
 #define INTERRUPT_PIN 4  //mpu6050の割り込みピン
 
@@ -49,6 +50,9 @@ int g_wingcounter = 0;
 //EEPROMのアドレス指定用カウンター
 int g_addrcounter = 1;
 
+//離床判定計測用カウンター
+int g_launchdecidecounter = 0;
+
 int64_t g_starttime; //全体のstarttime
 
 //移動平均算出用
@@ -66,7 +70,7 @@ double g_sealebel = -100000.0;
 
 //目標地点の座標
 const double g_targetlatitude = 34.660161;
-const double g_targetlongitude = 129.456681;
+const double g_targetlongitude = 139.456681;
 
 //地球の赤道半径(地球を球体として見た場合)
 const double g_equatorialradius = 6371.01;
@@ -85,12 +89,18 @@ QueueHandle_t queue_longitude;
 
 
 // サーボチャンネル、ピン設定
-const int CHANNEL0 = 0;
-const int CHANNEL1 = 1;
-const int CHANNEL2 = 2;
-const int ROTATESERVO1 = 25;
-const int ROTATESERVO2 = 26;
-const int SERVO1 = 27;
+const int ROTATESERVO1PIN = 25;
+const int ROTATESERVO2PIN = 26;
+const int EXPANDSERVOPIN = 27;
+
+//フライトモード、エマスト信号用ピン設定
+const int FLIGHTMODEPIN = 18; //フライトモード遷移用(MKR to ESP)
+const int EMGMODEPIN = 19; //エマスト通知用(ESP to MKR)
+//const int ESPTOMKRPIN = 33;
+
+Servo rotateservo1;
+Servo rotateservo2;
+Servo expandservo;
 
 // フェーズ定義
 enum systemPhase{
@@ -132,8 +142,11 @@ void loop1(void* pvParameters);
 void setup() {
     //UART0~2の設定
     Serial.begin(115200);
+    Serial.setTimeout(1000);
     COMM.begin(115200, SERIAL_8N1, 18,19);
+    COMM.setTimeout(1000);
     GPS.begin(9600, SERIAL_8N1, 16, 17);
+    GPS.setTimeout(1000);
 
     //MPU6050の初期化
     #if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
@@ -206,7 +219,7 @@ void setup() {
                     Adafruit_BMP280::STANDBY_MS_500); /* 待機時間の設定 */
 
     // フェーズを初期化
-    g_Phase = PHASE_WAIT;
+    g_Phase = PHASE_STAND;
 
     // コア間データ共有用のキューを設定
     queue_magnitude = xQueueCreate(512, sizeof(double));
@@ -227,12 +240,11 @@ void setup() {
     }
 
     // PWMサーボの設定
-    ledcSetup(CHANNEL0, 50, 10);
-    ledcSetup(CHANNEL1, 50, 10);
-    ledcSetup(CHANNEL2, 50, 10);
-    ledcAttachPin(ROTATESERVO1, CHANNEL0);
-    ledcAttachPin(ROTATESERVO2, CHANNEL1);
-    ledcAttachPin(SERVO1, CHANNEL2);
+    rotateservo1.attach(ROTATESERVO1PIN, 500, 2500);
+    rotateservo2.attach(ROTATESERVO2PIN, 500, 2500);
+    expandservo.attach(EXPANDSERVOPIN, 500, 2500);
+
+    expandservo.write(90);
 
     // light sleepの初期化
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_AUTO);
@@ -249,6 +261,11 @@ void setup() {
         Serial.println(eepStatus);
     }
 
+    //各種信号線初期設定
+    pinMode(FLIGHTMODEPIN, INPUT_PULLUP);
+    pinMode(EMGMODEPIN, OUTPUT);
+    digitalWrite(EMGMODEPIN, HIGH);
+
     // デュアルコアの設定
     xTaskCreatePinnedToCore(loop0, "Loop0", 8192, NULL, 2, &th[0], 0);
     vTaskDelay(500);
@@ -261,13 +278,31 @@ void loop0 (void* pvParameters){
     int64_t arrivaltime; //到着予測時刻
     unsigned int phasecounter = 1;
     while(1){
+        //自動遷移禁止の時、コマンドを受け付ける
+        Serial.print("[DEBUG] phase lock flag is ");
+        Serial.println(g_phaselockflag);
+        Serial.print(" , digitalRead is ");
+        Serial.println(digitalRead(FLIGHTMODEPIN));
+        if(!g_phaselockflag){
+            if(digitalRead(FLIGHTMODEPIN) == HIGH){
+                g_Phase = PHASE_STAND;
+                g_launchdecidecounter = 0;
+            }
+
+            if(digitalRead(FLIGHTMODEPIN) == LOW){
+                g_Phase = PHASE_LAUNCH;
+                
+            }
+        }
+
         //Serial.print("[DEBUG] g_phaselock is ");
         //Serial.println(g_phaselockflag);
-        g_loop0counter++;
+
         TickType_t starttick = xTaskGetTickCount();
         //Serial.println("loop0 is working");
         switch (g_Phase)
         {
+            /*
             // 待機(light sleep)
             case PHASE_WAIT:
             {
@@ -280,6 +315,7 @@ void loop0 (void* pvParameters){
                 g_phaselockflag = true; //自動遷移許可
                 break;
             }
+            */
 
             case PHASE_CONFIG:
             {
@@ -287,116 +323,26 @@ void loop0 (void* pvParameters){
                 //海面高のキャリブレーション
                 g_sealebel = calcSma();
                 Serial.print("CONFIG : the set value is "); Serial.println(g_sealebel);
-                if(g_sealebel == -100000.0) g_phaselockflag = false; //海面高が更新されていれば自動遷移禁止
-                //Serial.print("[DEBUG] g_sealebel, g_phaselock are ");
-                //Serial.print(g_sealebel);
-                //Serial.print(" , ");
-                //Serial.println(g_phaselockflag);
                 break;
-            }
-
-            // テストフェーズ
-            case PHASE_TEST:
-            {
-                //Serial.println("Enter TEST Sequence");
-
-                char testcommand = g_receivedcommand[1];
-                g_Test = testDecide(testcommand, g_Test);
-                
-                /* debug status */
-                Serial.print(testcommand);
-                Serial.print(" testcommand received. So system decided ");
-                Serial.print(g_Test);
-                Serial.println(" TEST.");
-
-                switch(g_Test)
-                {
-                    // フライトモード移行条件の検証
-                    case TEST_FLIGHTMODE:
-                    {   
-                        Serial.println("[TEST] Entry LAUNCH sequence [TEST]");
-                        break;
-                    }
-
-                    // 離床検知条件の検証
-                    case TEST_LAUNCH:
-                    {
-                        if(launchDecide(25000,5)){
-                            Serial.println("[TEST] READY for launch [TEST]");
-                        }else{
-                            Serial.println("[TEST] NOT READY for launch [TEST]");
-                        }
-                        break;
-                    }
-
-                    // 翼展開機構動作指令条件の検証(高度)
-                    case TEST_WINGALT:
-                    {
-                        if(wingaltDecide(5)){
-                            Serial.println("[TEST] READY for expand the wing [TEST]");
-                        }else{
-                            Serial.println("[TEST] NOT READY for expand the wing [TEST]");
-                        }
-                        break;
-                    }
-
-                    // 翼展開機構動作指令条件の検証(タイマー)
-                    case TEST_WINGTIMER:
-                    {
-                        if(g_onceflag){
-                            Serial.println("[TEST] Start Verify the wing expansion (TIMER) [TEST]");
-                            starttime = esp_timer_get_time();
-                        }
-                        //Serial.println("ENTRY : TEST_WINGTIMER");
-
-                        int64_t entrytime = esp_timer_get_time();
-                        int64_t elapsedtime = entrytime - starttime;
-                        //Serial.print("elapsed time is ");
-                        //Serial.printf("% "PRId64" \n",elapsedtime);
-                        if(elapsedtime < 10000000){
-                            if(wingaltDecide(5)){
-                                Serial.println("[TEST] Ready for expand the wing [TEST]");
-                                g_successflag_timer = true;
-                            }else{
-                                Serial.println("[TEST] NOT Ready for expand the wing [TEST]");
-                            }
-
-                            break;
-
-                        }else if(!g_successflag_timer && elapsedtime >= 10000000){
-                            Serial.println("[TEST] FORCE : expand the wing [TEST]");
-                            break;
-                        }
-                    }
-
-                    // 何もしない
-                    case TEST_STAND:
-                    {
-                        Serial.println("[TEST] Entry TEST_STAND [TEST]");
-                        break;
-                    }
-
-
-                    default:
-                    {
-                        break;
-                    }
-
-                break;
-                }
-
             }
 
             // 離床検知
             case PHASE_LAUNCH:
             {
-                if(launchDecide(30000,10)){
+                for(int i = 0; i < 5; i++){
+                    g_sealebel = calcSma();
+                }
+                Serial.println("[FLIGHT] Got g_sealebel.");
+
+                if(launchDecide(30000,10)){ 
                     Serial.println("[FLIGHT] READY for LAUNCH [FLIGHT]");
                     starttime = esp_timer_get_time();
                     g_Phase = PHASE_RISE;
                     g_phaselockflag = true;
                 }else{
                     Serial.println("[FLIGHT] NOT READY for LAUNCH [FLIGHT]");
+                    Serial.print("[DEBUG] g_launchcounter is ");
+                    Serial.println(g_launchdecidecounter);
                 }
                 break;   
             }
@@ -406,25 +352,31 @@ void loop0 (void* pvParameters){
             {
                 int64_t entrytime = esp_timer_get_time();
                 int64_t elapsedtime = entrytime - starttime;
-                //Serial.print("[DEBUG] Elapse time is ");
-                //Serial.printf("% "PRId64" \n",elapsedtime);
+                Serial.print("[DEBUG] Elapse time is ");
+                Serial.printf("% "PRId64" \n",elapsedtime);
                 if(elapsedtime < 7000000){
                     Serial.println("[FLIGHT] NOT Ready for expand the WING [FLIGHT]");
-                }else if(elapsedtime >= 7000000 && elapsedtime < 16000000){
+                }else if(elapsedtime >= 7000000 && elapsedtime < 13000000){
                     if(wingaltDecide(5)){
                         Serial.println("[FLIGHT] Ready for expand the WNIG [FLIGHT]");
                         g_Phase = PHASE_GLIDE;
                         g_phaselockflag = true;
                         g_successflag_timer = true;
                         starttime = esp_timer_get_time();
+                        //翼展開用サーボ動作
+                        expandservo.write(180);
+                        vTaskDelay(10);
                     }else{
                         Serial.println("[FLIGHT] NOT Ready for expand the WING [FLIGHT]");
                     }
-                }else if(elapsedtime >= 16000000){
+                }else if(elapsedtime >= 13000000){
                         Serial.println("[FLIGHT] FORCE : expand the WING [FLIGHT]");
                         g_Phase = PHASE_GLIDE;
                         g_successflag_timer = true;
                         starttime = esp_timer_get_time();
+                        //翼展開用サーボ動作
+                        expandservo.write(180);
+                        vTaskDelay(10);
                 }
                 break;
             }
@@ -501,7 +453,7 @@ void loop0 (void* pvParameters){
                 //目標地点と予測到達地点の距離
                 distance = g_equatorialradius * acos(sin(predictlatitude * convrad) * sin(g_targetlatitude * convrad) + cos(predictlatitude * convrad) * cos(g_targetlatitude * convrad) * cos((predictlongitude - g_targetlongitude) * convrad));
                 //予測進行方向の方位角
-                azimuthangle = 90.0 - atan2(sin((predictlongitude - nowlongitude) * convrad), cos(nowlatitude * convrad) * tan(g_targetlatitude * convrad) - sin(nowlatitude * convrad) * cos((predictlongitude - nowlatitude) * convrad));
+                azimuthangle = 90.0 - atan2(cos(nowlatitude * convrad) * tan(g_targetlatitude * convrad) - sin(nowlatitude * convrad) * cos((predictlongitude - nowlatitude) * convrad), sin((predictlongitude - nowlongitude) * convrad));
                 //到着予測時間
                 arrivaltime = nowtime + abs(((nowaltitude - g_sealebel) * (nowtime - g_oldtime)) / (nowaltitude - g_oldaltitude));
 
@@ -532,14 +484,6 @@ void loop0 (void* pvParameters){
                     g_emgflag = true;
                 }
 
-
-                /*　制御用サーボ動作
-                ledcWrite(CHANNEL0, 1023);
-                ledcWrite(CHANNEL0, 0);
-                ledcWrite(CHANNEL1, 1023);
-                ledcWrite(CHANNEL1, 0);
-                */
-
                 //各種データ更新
                 g_oldlatitude = nowlatitude;
                 g_oldlongitude = nowlongitude;
@@ -558,14 +502,12 @@ void loop0 (void* pvParameters){
 
             case PHASE_EMERGENCY:
             {
-                g_phaselockflag = false;
-                Serial.println("[EMG] Emergency situation occurred!!! [EMG]");
-                /* 緊急用サーボ動作
-                ledcWrite(CHANNEL0, 1023);
-                ledcWrite(CHANNEL0, 0);
+                g_phaselockflag = true;
+                while(1){
+                    Serial.println("[EMG] Emergency situation occurred!!! [EMG]");
+                    digitalWrite(EMGMODEPIN, LOW);
+                }
 
-                while(1);
-                */
                 break;
             }
 
@@ -579,26 +521,6 @@ void loop0 (void* pvParameters){
             {
                 break;
             }
-        }
-
-        // コマンドを待つ
-        //Serial.print("[DEBUG] COMM.available is ");
-        //Serial.println(COMM.available());
-        //Serial.println(g_phaselockflag);
-        if(g_phaselockflag && COMM.available() > 0){
-            g_receivedcommand = COMM.readStringUntil('\n');
-            Serial.print("[DEBUG] ");
-            Serial.print(g_receivedcommand);
-            Serial.println(" g_receivedcommand received.");
-            g_command = g_receivedcommand[0];
-            if(g_command != g_oldcommand){
-                g_onceflag = true;
-            }else{
-                g_onceflag = false;
-            }
-
-            g_Phase = phaseDecide(g_command, g_Phase);
-            g_oldcommand = g_command;
         }
 
         //debug status
@@ -618,6 +540,7 @@ void loop0 (void* pvParameters){
         Serial.print("[DEBUG] PHASE is ");
         Serial.println(g_Phase);
 
+        g_loop0counter++;
         vTaskDelay(40); //調整の必要あり at #1
     }
 }
@@ -655,12 +578,6 @@ void loop1 (void* pvParameters){
                 longitude = gps.location.lng();
             }
         }
-
-        Serial.print("[DEBUG:LOOP1] latitude, logitude = ");
-            Serial.print(latitude,9);
-            Serial.print(" , ");
-            Serial.print(longitude,9);
-            Serial.println(" .");
 
         // MPU6050が使用不能の時、エマスト発動
         if (!dmpReady){
@@ -710,30 +627,30 @@ void loop1 (void* pvParameters){
             if(entrytime - g_starttime >= 10000000){ //最初のデータは不安定なので取得しない
                 BaseType_t xStatus_magnitude = xQueueSend(queue_magnitude, &magnitude, 0);
                 if(xStatus_magnitude == pdTRUE){
-                    Serial.print("SUCCESS: send MAGNITUDE ");
+                    //Serial.print("SUCCESS: send MAGNITUDE ");
                 }else{
-                    Serial.print("FAILED: send MAGNITUDE ");
+                    //Serial.print("FAILED: send MAGNITUDE ");
                 }
 
                 BaseType_t xStatus_height = xQueueSend(queue_altitude, &altitude, 0);
                 if(xStatus_height == pdTRUE){
-                    Serial.print("SUCCESS: send HEIGHT ");
+                    //Serial.print("SUCCESS: send HEIGHT ");
                 }else{
                     Serial.print("FAILED: send HEIGHT ");
                 }
 
                 BaseType_t xStatus_latitude = xQueueSend(queue_latitude, &latitude, 0);
                 if(xStatus_latitude == pdTRUE){
-                    Serial.print("SUCCESS: send LATITUDE ");
+                    //Serial.print("SUCCESS: send LATITUDE ");
                 }else{
-                    Serial.print("FAILED: send LATITUDE ");
+                    //Serial.print("FAILED: send LATITUDE ");
                 }
 
                 BaseType_t xStatus_longitude = xQueueSend(queue_longitude, &longitude, 0);
                 if(xStatus_longitude == pdTRUE){
-                    Serial.println("SUCCESS: send LONGITUDE");
+                    //Serial.println("SUCCESS: send LONGITUDE");
                 }else{
-                    Serial.println("FAILED: send LONGITUDE");
+                    //Serial.println("FAILED: send LONGITUDE");
                 }
             }
 
@@ -779,8 +696,8 @@ void loop1 (void* pvParameters){
         senddata += ",";
         //Serial.println(eepromwriteflag);
         senddata += int64String(entrytime);
-        Serial.print("[DEBUG:LOOP1] senddata is ");
-        Serial.println(senddata);
+        //Serial.print("[DEBUG:LOOP1] senddata is ");
+        //Serial.println(senddata);
 
         if(eepromwriteflag){    
             if(writeData(senddata)){
@@ -873,10 +790,7 @@ bool launchDecide(int magnitudecriterion, int countercriterion){
     magnitudecriterion : 加速度ベクトルの大きさの基準
     countercriterion : 何回連続したときに判定するか
     */
-    int counter_launch = 0;
-    //Serial.println("ENTRY : LAUNCHDECIDE");
-    //Serial.println(g_loop0counter);
-
+    
     double magnitude = 0.0;
     BaseType_t xStatus = xQueueReceive(queue_magnitude, &magnitude, 0);
     if(xStatus == pdTRUE){
@@ -888,14 +802,14 @@ bool launchDecide(int magnitudecriterion, int countercriterion){
     //Serial.print("magnitude is ");
     //Serial.println(magnitude);
 
-    if(g_loop0counter >= 5000 && magnitude > magnitudecriterion){
+    if(magnitude > magnitudecriterion){
         if((g_loop0counter - g_launchcounter) == 1){ //連続かどうかの判定
-            counter_launch++;
+            g_launchdecidecounter++;
         }
         g_launchcounter = g_loop0counter;
     }
 
-    if(counter_launch >= countercriterion){
+    if(g_launchdecidecounter >= countercriterion){
         return true;
     }else{
         return false;
